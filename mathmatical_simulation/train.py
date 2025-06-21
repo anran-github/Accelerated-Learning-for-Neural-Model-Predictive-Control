@@ -15,7 +15,7 @@ import ast
 # import NN structure:
 from network import P_Net
 
-from Objective_Formulations import ObjectiveFormulation
+from Objective_Formulations_new import ObjectiveFormulation
 from test_converge_PI import test_performance_index
 
 
@@ -237,15 +237,15 @@ print(f"Using device: {device}")
 # Parse the command-line arguments
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset',type=str,default='mathmatical_simulation/dataset/MM_DiffSys_dataset.csv', help='corresponding theta dataset')
+parser.add_argument('--dataset',type=str,default='./dataset/MM_DiffSys_dataset.csv', help='corresponding theta dataset')
 parser.add_argument('--reference',type=float,default=0, help='reference of dataset')
-parser.add_argument('--lr',type=float, default=1e-3, help='learning rate')
-parser.add_argument('--seting_weight',type=list, default=[0.3,0.7,0.0], help='weight for loss function, [MSE, Objective, Nonlinear]')
+parser.add_argument('--lr',type=float, default=5e-4, help='learning rate')
+parser.add_argument('--seting_weight',type=list, default=[1,0.,0.0], help='weight for loss function, [MSE, Objective, Nonlinear]')
 parser.add_argument('--pre_trained', type=str, default='',help='input your pretrained weight path if you want')
 args = parser.parse_args()
 print(args)
 
-save_path = f'mathmatical_simulation/weights'
+save_path = f'./weights'
 os.makedirs(save_path, exist_ok=True)
 x_r = np.array([args.reference])
 data_tmp = Data_Purify(args.dataset,x_r,p_max=10,u_max=1e5)
@@ -253,19 +253,23 @@ data_tmp = Data_Purify(args.dataset,x_r,p_max=10,u_max=1e5)
 
 # ============== Import and Purify Data ==============
 # # import dataset 
-# input_data_valid,label_data_valid = data_tmp.purified_data()
+input_data_valid,label_data_valid = data_tmp.purified_data()
 
 
 
 # =============== Add Noise to Label Data ============== 
-input_data_valid,label_data_tmp = data_tmp.purified_data()
-# add noise to label:
-np.random.seed(42)  # For reproducibility
-noise = np.random.normal(0, 0.9, size=(len(label_data_tmp), 5))
-np.random.seed(10)
-noise[:, 3] = np.random.normal(0, 0.9, size=(len(label_data_tmp),))  # Add more noise to u
-label_data_tmp = np.array(label_data_tmp) + noise
-label_data_valid  = label_data_tmp.tolist()
+# input_data_valid,label_data_tmp = data_tmp.purified_data()
+
+
+# middle noise:
+
+
+# low noise: 2% uniform noise
+# np.random.seed(42)  # For reproducibility
+# noise = np.random.uniform(-0.02, 0.02, size=(len(label_data_tmp), 5)) 
+# label_data_valid = np.array(label_data_tmp)*noise + np.array(label_data_tmp)
+
+# label_data_valid  = label_data_valid.tolist()
 
 
 
@@ -322,8 +326,9 @@ class RunningAverage:
 
         # elif self.avg < value.detach():
         #     self.avg = value.detach()
+        # else:
         
-            # self.avg = 0.9 * self.avg + 0.1 * value.detach()
+        #     self.avg = 0.9 * self.avg + 0.1 * value.detach()
         return value / (self.avg + 1e-8)
 
 running_avg1 = RunningAverage()
@@ -342,8 +347,8 @@ def loss_function(nn_inputs, outputs, targets):
     # Normalize losses using running averages
     loss1 = running_avg1.update(loss1)
     loss2 = running_avg2.update(loss2)
-    if loss2 < 0:
-        loss2 = torch.abs(loss2)
+    # if loss2 < 0:
+    #     loss2 = torch.abs(loss2)
         
     loss3 = running_avg3.update(loss3)
 
@@ -360,15 +365,18 @@ def loss_function(nn_inputs, outputs, targets):
 
 
 
-
-optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+optimizer = torch.optim.RMSprop(model.parameters(), lr=args.lr)
+# optimizer = torch.optim.RAdam(model.parameters(), lr=args.lr)
 scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs//20, eta_min=args.lr*0.07)
 
 # '''
 
 
-global lowest_loss 
+global lowest_loss, lowest_PI, highest_in, lowest_PI_num_ratio
 lowest_loss = np.inf
+lowest_PI   = np.inf
+highest_in  = 0
+lowest_PI_num_ratio = 1000
 
 def test(model, test_loader,epoch):
     test_loss = 0.0
@@ -393,17 +401,30 @@ def test(model, test_loader,epoch):
     test_loss /= len(test_loader.dataset)
     print(f'Test Loss: {test_loss:.4f}')
 
+
+    # test PI
+    test_PI, num_in = test_performance_index(model, device=device, xr=0.0)
+
     # save model
     # Save the model
-    global lowest_loss
-    if lowest_loss>test_loss:
-        lowest_loss = test_loss
+    global lowest_loss, lowest_PI, highest_in, lowest_PI_num_ratio
+    # if lowest_loss>test_loss:
+    #     lowest_loss = test_loss
+    lowest_PI_num_ratio 
+
+    if lowest_PI_num_ratio > (test_PI/num_in):
+
+        
         print('Model Saved!')
         # torch.save(model.state_dict(), os.path.join(
-        #     save_path,'test_model.pth'))
+        #     save_path,'no_noise.pth'))
         torch.save(model.state_dict(), os.path.join(
-            save_path,'test_model_weight_{}_{}_{}.pth'.format(
+            save_path,'no_noise_weight_{}_{}_{}.pth'.format(
                 designed_weights[0], designed_weights[1], designed_weights[2])))
+        
+        lowest_PI = test_PI
+        highest_in = num_in
+        lowest_PI_num_ratio = test_PI/num_in
 
 
 # test(model, test_loader,epoch=0)
@@ -487,7 +508,7 @@ plt.show()
 
 
 # test_visualization(model, test_loader)
-test_performance_index(model, device=device, xr=x_r, model_path=os.path.join(save_path,'test_model_weight_{}_{}_{}.pth'.format(designed_weights[0], designed_weights[1], designed_weights[2])))
+test_performance_index(model, device=device, xr=0.0, model_path=os.path.join(save_path,'no_noise_weight_{}_{}_{}.pth'.format(designed_weights[0], designed_weights[1], designed_weights[2])))
 
 
 

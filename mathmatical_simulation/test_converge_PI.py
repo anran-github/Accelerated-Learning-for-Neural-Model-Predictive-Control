@@ -40,11 +40,12 @@ def test_performance_index(model,device,xr=0., model_path=None):
     pts_count = 10000
     # Generate random initial states between -5 and 5:
     torch.manual_seed(42)  # For reproducibility
+    # x0 = (torch.rand(pts_count,2)*10-5)  # Random initial states
     x0 = (torch.rand(pts_count,2)*4-2)  # Random initial states
 
     dt = 0.1
-    x_upper_bound = 5
-    x_lower_bound = -5
+    x_upper_bound = 10
+    x_lower_bound = -10
 
     x_r = torch.tensor([[xr]] * pts_count)  # Reference trajectory
 
@@ -96,16 +97,22 @@ def test_performance_index(model,device,xr=0., model_path=None):
 
 
 
-    # ========== Performance Index Calculation ============
-    if select_mask.sum() >= 1000:
-        xset = xset[:,select_mask,:]  # Filter xset with the mask
-        xset = xset[:,:1000,:]  # Limit to 1000 samples for performance index calculation
+    # ========== Performance Index Calculation -- Consider ROI ============
+    valid_trajectories = select_mask.sum()
 
-        Performance_index = torch.norm(xset - x_r[:1000, :], dim=2)
-        print(f'Performance Index: {Performance_index.sum(0).mean()}')
+    if valid_trajectories > 0:
+        xset = xset[:,select_mask,:]  # Filter xset with the mask
+
+        Performance_index = torch.norm(xset - x_r[:valid_trajectories, :], dim=2)
+        print(f'Performance Index: {Performance_index.sum(0).mean()} | Trajectories in range: {valid_trajectories} | Ratio: {Performance_index.sum(0).mean()/valid_trajectories}')
     else:
-        print("Only {} trajectories are in the range of [-5, 5]".format(select_mask.sum().item()))
+        print("No trajectories are in the range of [-5, 5]")
+        print("Mission Failed!")
         Performance_index = torch.tensor([1e5])
+
+    # =========== Performance Index Calculation without ROI============
+    # Performance_index = torch.norm(xset - x_r, dim=2)
+    # print(f'Performance Index: {Performance_index.sum(0).mean()}')
 
 
     # =========== Plotting Results ============
@@ -127,9 +134,10 @@ def test_performance_index(model,device,xr=0., model_path=None):
         # print(f'Final Objective Function Value: {obj_func_vals.item()}')
 
 
-    return Performance_index.sum(0).mean()
+    return Performance_index.sum(0).mean(), valid_trajectories
 
-# test
+# # test
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = P_Net(output_size=5).to(device)
-test_performance_index(model, device=device, xr=0.0, model_path='mathmatical_simulation/weights/weight_0.05_0.9_0.05_PI100000.0.pth')
+PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path='mathmatical_simulation/weights/no_noise_weight_1_0.0_0.0 copy.pth')
+print(f'Performance Index: {PI} | Valid Trajectories Count: {valid_cnt}')
