@@ -36,7 +36,7 @@ class ObjectiveFormulation():
         
 
         self.c = torch.tensor(1e3).to(device)
-        self.relu = torch.nn.ReLU()
+        self.acti_fun = torch.nn.Sequential(torch.nn.Tanh(),torch.nn.ReLU())
 
 
     def forward(self, x, nn_output):
@@ -103,7 +103,7 @@ class ObjectiveFormulation():
         # two eigen values, sum them up.
         torch.cuda.empty_cache()
 
-        return self.c*torch.sum(self.relu(1e-15-eig_values),dim=1).unsqueeze(-1)
+        return self.c*torch.sum(self.acti_fun(1e-15-eig_values),dim=1).unsqueeze(-1)
         # return self.c*torch.sum(torch.sign(torch.relu(1e-15-eig_values)),dim=1).unsqueeze(-1)
 
 
@@ -128,12 +128,12 @@ class ObjectiveFormulation():
         # previous NOM method:
         term_one = torch.sqrt(torch.abs(x_dag@P@ (Add@x+Bdd@u-self.x_r))) - torch.sqrt(torch.abs(x_prime@P@(x-self.x_r)))
         term_two = theta*torch.sqrt(torch.matmul(x_prime,x-self.x_r))
-        return self.c*torch.relu((term_one+term_two).squeeze(-1))
+        return self.c*self.acti_fun((term_one+term_two).squeeze(-1))
 
         # use replaced constraints:
         # term_one = torch.abs(x_dag@P@ (Add@x+Bdd@u-self.x_r)) - ((0.5*theta)**2)*(x_prime@(x-self.x_r))
         # term_two = - x_prime@P@(x-self.x_r) + ((1.5*theta)**2)*(x_prime@(x-self.x_r))
-        # return self.c*(self.relu(term_one)+self.relu(term_two)).squeeze(-1)
+        # return self.c*(self.acti_fun(term_one)+self.acti_fun(term_two)).squeeze(-1)
     
 
     def constrain3(self,x):
@@ -144,7 +144,7 @@ class ObjectiveFormulation():
 
         torch.cuda.empty_cache()
 
-        return self.c*torch.sum(self.relu(1e-10-theta),dim=1).unsqueeze(-1)
+        return self.c*torch.sum(self.acti_fun(1e-10-theta),dim=1).unsqueeze(-1)
 
 
 

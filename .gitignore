@@ -1,4 +1,6 @@
 mathmatical_simulation/__pycache__
 mathmatical_simulation/weights
 mathmatical_simulation/dataset/*
+semi_supervison/dataset
+semi_supervison/weights
 __pycache__
