@@ -1,11 +1,11 @@
-clc
+.0clc
 close all
 clear all
 
 
 %% STATE SPACE Define
 % read A,B,C,D matrices:
-dt = 0.1;
+dt = 0.01;
 Ad = [1, dt;0, 1];
 Bd= [0;0];
 

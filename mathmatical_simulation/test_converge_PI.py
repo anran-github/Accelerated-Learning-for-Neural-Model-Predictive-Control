@@ -77,7 +77,7 @@ def test_performance_index(model,device,xr=0., model_path=None):
         xset[i,:, :] = x
 
         x1_new = x[:, 0] + dt * x[:, 1]
-        x2_new = x[:, 1] + dt * dt*(x[:, 0]**3+(x[:, 1]**2+1)*u)
+        x2_new = x[:, 1] + dt * (x[:, 0]**3+(x[:, 1]**2+1)*u)
 
 
 

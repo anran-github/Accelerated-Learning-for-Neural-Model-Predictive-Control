@@ -77,7 +77,7 @@ def test_performance_index(model,device,xr=0., model_path=None):
         xset[i,:, :] = x
 
         x1_new = x[:, 0] + dt * x[:, 1]
-        x2_new = x[:, 1] + dt * dt*(x[:, 0]**3+(x[:, 1]**2+1)*u)
+        x2_new = x[:, 1] + dt * (x[:, 0]**3+(x[:, 1]**2+1)*u)
 
 
 
@@ -139,5 +139,5 @@ def test_performance_index(model,device,xr=0., model_path=None):
 # # test
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # model = P_Net(output_size=5).to(device)
-# PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path='mathmatical_simulation/weights/no_noise_weight_1_0.0_0.0 copy.pth')
+# PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path='semi_supervison/weights/weight_0.9_0.1_PI115.pth')
 # print(f'Performance Index: {PI} | Valid Trajectories Count: {valid_cnt}')

@@ -31,7 +31,7 @@ def criterion3_nonlinear_function(x, data):
     dt = 0.1
 
     x1_new = x1 + dt * x2
-    x2_new = x2 + dt * dt*(x1**3+(x2**2+1)*u)
+    x2_new = x2 + dt * (x1**3+(x2**2+1)*u)
     x = torch.stack((x1_new, x2_new), dim=1)
 
     return torch.norm(x, dim=1).mean()  # Return the norm of the new state vector
