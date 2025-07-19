@@ -10,7 +10,7 @@ from Objective_Formulations_new import ObjectiveFormulation
 import argparse
 import matplotlib.pyplot as plt
 
-
+dt = 0.1
 
 def test_performance_index(model,device,xr=0., model_path=None):
     """
@@ -43,7 +43,6 @@ def test_performance_index(model,device,xr=0., model_path=None):
     # x0 = (torch.rand(pts_count,2)*10-5)  # Random initial states
     x0 = (torch.rand(pts_count,2)*4-2)  # Random initial states
 
-    dt = 0.1
     x_upper_bound = 10
     x_lower_bound = -10
 
@@ -136,8 +135,116 @@ def test_performance_index(model,device,xr=0., model_path=None):
 
     return Performance_index.sum(0).mean(), valid_trajectories
 
-# # test
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# model = P_Net(output_size=5).to(device)
-# PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path='semi_supervison/weights/weight_0.9_0.1_PI115.pth')
-# print(f'Performance Index: {PI} | Valid Trajectories Count: {valid_cnt}')
+
+def trajectory_plot(true_data,model_predict_data):
+
+    true_data = np.array(true_data)  # Ensure true_data is in the correct shape
+    output_data = np.array(model_predict_data)  # Ensure output_data is in the correct shape
+
+    plt.figure(figsize=(10, 6))
+
+    for i in range(true_data.shape[0]):
+        plt.plot(true_data[i,:,0],true_data[i,:,1],linestyle='-',color='blue', marker='*', markersize=5)
+        plt.plot(output_data[i,:,0],output_data[i,:,1],linestyle='--',color='red', marker='o', markersize=5)
+
+    # plt.plot(output_data[:, 0], output_data[:, 1], label='Output Trajectory', color='red', linestyle='--')
+    plt.title('Trajectory Comparison')
+    
+    plt.xlabel('x1')
+    plt.ylabel('x2')
+    plt.axhline(0, color='black', lw=0.5, ls='--')
+    plt.axvline(0, color='black', lw=0.5, ls='--')
+    plt.grid()
+    plt.legend(['Optimization', 'Trained NN'])
+    plt.tight_layout()
+    plt.savefig('semi_supervison/weights/trajectory_compare.png')
+    plt.show()
+    plt.close()
+
+
+
+def test_trajectory(model,val_trajectory,device):
+
+    label_x, label_vals = val_trajectory
+
+    steps = len(label_x[0])  # Number of steps in the trajectory
+    
+
+    init_pts = np.array(label_x)[:,0,:]  # Initial points for the trajectories
+
+    init_pts_in = torch.tensor(init_pts, dtype=torch.float32).to(device)
+    
+    # Initialize the state set
+    xset = torch.zeros((init_pts_in.shape[0], steps, 2)).to(device)
+    nn_output_set = torch.zeros((init_pts_in.shape[0], steps, 5)).to(device)
+
+    for i in range(steps):
+        with torch.no_grad():
+            model.eval()
+            nn_output = model(init_pts_in)
+            # nn_output order: # [p1, p2, p3, u, theta] 
+
+            # save state
+            xset[:, i, :] = init_pts_in[:,:2]
+            nn_output_set[:, i, :] = nn_output
+
+            # update state
+            u = nn_output[:, 3]
+            x1_new = init_pts_in[:, 0] + dt * init_pts_in[:, 1]
+            x2_new = init_pts_in[:, 1] + dt * (init_pts_in[:, 0]**3 + (init_pts_in[:, 1]**2 + 1) * u)
+            init_pts_in = torch.stack((x1_new, x2_new, torch.zeros_like(x1_new)), dim=1)
+
+
+    trajectory_plot(label_x, xset.cpu().numpy())
+
+    # compare other paramters with true label
+    label_vals = np.array(label_vals)  # Ensure label_vals is in the correct shape
+    objective_formulation = ObjectiveFormulation()
+    # Forward pass through the objective formulation
+    
+    xset = xset.reshape(-1,2) 
+    nn_output_set = nn_output_set.reshape(-1,5)  # Reshape to match the expected input shape
+    obj_nn_output = objective_formulation.forward_any(torch.tensor(xset).cpu(), torch.tensor(nn_output_set).cpu())
+    
+    label_x = torch.tensor(label_x,dtype=torch.float32)[:,:,:2].reshape(-1,2) 
+    label_vals = torch.tensor(label_vals,dtype=torch.float32).reshape(-1,5) 
+    
+    obj_label_vals = objective_formulation.forward_any(label_x,label_vals)
+    # plot two values:
+    plt.figure(figsize=(10, 6))
+    plt.plot(obj_nn_output.cpu().numpy(), label='NN Output J+Ci', color='red')
+    plt.plot(obj_label_vals.cpu().numpy(), label='Optimization J+Ci', color='blue')
+    # display average values as text blocks on the figure:
+    avg_nn_output = obj_nn_output.mean().item()
+    avg_label_vals = obj_label_vals.mean().item()
+    plt.text(200, 150, f'Avg NN Output: {avg_nn_output:.2f}', color='red', fontsize=15)
+    plt.text(200, 140, f'Avg Opt Output: {avg_label_vals:.2f}', color='blue', fontsize=15)
+    plt.title('Objective Function Values +Constraints Comparison')
+    plt.xlabel('Steps')
+    plt.ylabel('Objective Function Value + Constraints')
+    plt.grid(linestyle='--', color='gray')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('semi_supervison/weights/trajectory_obj_compare.png')
+    plt.show()
+    plt.close()
+
+
+
+'''
+if __name__ == "__main__":
+
+    # # test
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = P_Net(output_size=5).to(device)
+    ckpt_path = 'semi_supervison/weights/weight_0.9_0.1_uniform.pth'
+    model.load_state_dict(torch.load(ckpt_path, map_location=device))
+    PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path=ckpt_path)
+    # print(f'Performance Index: {PI} | Valid Trajectories Count: {valid_cnt}')
+
+    from dataprocessing import dataloading
+    data_opt_set, label_opt_set, trajectories_in_val, trajectories_label_val = dataloading('semi_supervison/dataset/dt01/MM_DiffSys_dataset_trajectories_uniform.csv')
+    # trajectory_plot(trajectories_in_val, model)
+    test_trajectory(model, (trajectories_in_val, trajectories_label_val), device)
+
+'''

@@ -8,14 +8,26 @@ clear all
 dt = 0.1;
 Ad = [1, dt;0, 1];
 Bd= [0;0];
+C = [1 0];           % Output matrix
+D = 0;               % Direct transmission matrix
 
 % Save the data to a text file
 filename = 'dataset/MM_DiffSys_dataset_trajectories.csv';
 
-% read data of MM solved:
+% =================read data of NOM solved:=========================
+% dataset_NOM = readmatrix('dataset/DifSYS_NOM_Dataset_0.1.txt');
+% dataset = zeros(size(dataset_NOM,1)*2,4);
+% for i=1:size(dataset_NOM,1)
+% dataset(i*2-1:i*2,1:4) = [dataset_NOM(i,1),dataset_NOM(i,4),dataset_NOM(i,5),dataset_NOM(i,3);
+%     dataset_NOM(i,2),dataset_NOM(i,5),dataset_NOM(i,6),0];
+% end
+
+% =================read data of MM solved:=========================
 dataset = readmatrix('dataset/MM_DiffSys_dataset.csv');
+
+
 % set initial state and reference
-x = [2,-1]';
+x = [3,1]';
 x_r = [0,0]';
 
 % Qx = [2,0;0,2];
@@ -27,6 +39,8 @@ iteration = 1;
 steps = 50;
 
 x_set = zeros(steps,1,2);
+eig_set = zeros(steps,1);
+theta_set = zeros(steps,1);
 x_set(1,:,:)=x;
 
 for i=2:steps+1
@@ -49,12 +63,12 @@ for i=2:steps+1
     init_val = dataset(idx_min*2-1:idx_min*2,:);
 
     % Retrieve the closest data point
-    u_init     = init_val(1,4);
+    ui     = init_val(1,4);
     p_init     = init_val(1:2,2:3);
     theta_init = init_val(2,4);
     % ===============================END===================================
     
- 
+
     % init errors, start while loop until stop threshold is satisfied.
     delta = 0.01;
     error1 = 1;
@@ -64,7 +78,7 @@ for i=2:steps+1
     iteration = 1;
     % ========= MAIN LOOP OF MULTI-AGENT ===========
     while iteration <= 1e10
-        
+
         % if error1 <= delta && error2 <= delta && error3 <= delta
         if error_cost <= delta
             break
@@ -74,61 +88,62 @@ for i=2:steps+1
             pit = p_init;
             ui = u_init;
             thetai=theta_init;
-    
+
         end
         % ==================OPT U=======================
         clear yalmip
         u = sdpvar(1,1,'full');
         theta=sdpvar(1,1,'full');
         % slack = sdpvar(1,1,'full');
-        
-            
-        Objective1 = 0.1*(norm(u))^2+ 2*(norm(Ad*x+Bd*u-x_r)^2)+((x-x_r)'*pit*(x-x_r))+exp(-theta);
+
+        Q = [2,0;0,2];
+        R = 0.1;
+        Objective1 = R*(norm(u))^2+ (Ad*x+Bd*u-x_r)'*Q*(Ad*x+Bd*u-x_r)+((x-x_r)'*pit*(x-x_r))+exp(-theta);
         Constraints = [theta>=1e-10;((x-x_r)'*pit*(x-x_r))>=((1.5*theta)^2)*(x-x_r)'*(x-x_r);
             ((Ad*x+Bd*u-x_r)'*pit*(Ad*x+Bd*u-x_r))<=((0.5*theta)^2)*(x-x_r)'*(x-x_r)];
-    
+
         opt=sdpsettings('solver','fmincon');
         sol=optimize(Constraints,Objective1,opt)
-    
+
         % update u with optimized solution
         u_ii = double(u);
         theta_ii = double(theta);
-    
+
         % ==================OPT P=======================
         clear yalmip
         P=sdpvar(2,2,'symmetric');
         Slack=sdpvar(1,1,'full');
-        
-        Objective2 = 0.1*(norm(ui))^2+ 2*(norm(Ad*x+Bd*ui-x_r)^2)+((x-x_r)'*P*(x-x_r))+exp(-thetai);
+
+        Objective2 = R*(norm(ui))^2+ (Ad*x+Bd*ui-x_r)'*Q*(Ad*x+Bd*ui-x_r)+((x-x_r)'*P*(x-x_r))+exp(-thetai);
         Constraints = [P>=1e-10;
         ((x-x_r)'*P*(x-x_r))>=((1.5*thetai)^2)*(x-x_r)'*(x-x_r);
         ((Ad*x+Bd*ui-x_r)'*P*(Ad*x+Bd*ui-x_r))<=((0.5*thetai)^2)*(x-x_r)'*(x-x_r)];
-    
-    
+
+
         sol=optimize(Constraints,Objective2,opt)
         % cost2(iteration) = double(Objective2);
-        
+
         % update p with optimal solution
         p_ii = double(P);
-    
-           
+
+
         % ================== update pi, ui, thetai with optimal w ===========
         w1 = sdpvar(1,1,'full');
         w2 = sdpvar(1,1,'full');
         w3 = sdpvar(1,1,'full');
-    
+
         Slack=sdpvar(1,1,'full');
         ui = w1*u_ii+(1-w1)*ui;
         pit = w2*p_ii+(1-w2)*pit;
         thetai=w3*theta_ii+(1-w3)*thetai;
-        Objective3 = 0.1*(norm(ui))^2+ 2*(norm(Ad*x+Bd*(ui)-x_r)^2)+((x-x_r)'*pit*(x-x_r))+exp(-thetai);
+        Objective3 = R*(norm(ui))^2+ (Ad*x+Bd*(ui)-x_r)'*Q*(Ad*x+Bd*(ui)-x_r)+((x-x_r)'*pit*(x-x_r))+exp(-thetai);
         Constraints = [pit>=Slack;Slack>=1e-10;
             w1>=0;w1<=1;w2>=0;w2<=1;w3>=0;w3<=1;
         ((x-x_r)'*pit*(x-x_r))>=((1.5*thetai)^2)*(x-x_r)'*(x-x_r);
         ((Ad*x+Bd*ui-x_r)'*pit*(Ad*x+Bd*ui-x_r))<=((0.5*thetai)^2)*(x-x_r)'*(x-x_r)];
         sol=optimize(Constraints,Objective3,opt)
-    
-        double([w1,w2,w3])
+
+        double([w1,w2,w3]);
         ui = double(ui);
         pit = double(pit);
         thetai = double(thetai);
@@ -138,19 +153,33 @@ for i=2:steps+1
         error2 = norm([p_ii(1,1);p_ii(1,2);p_ii(2,2)]-[pit(1,1);pit(1,2);pit(2,2)]);
         % error2 = norm(eig(p_ii/norm(p_ii)) - eig(pit/norm(pit)));
         error3 = norm(theta_ii-thetai);
-        
-        Cost(iteration)=0.1*(norm(ui))^2+ 2*(norm(Ad*x+Bd*ui-x_r)^2)+((x-x_r)'*pit*(x-x_r))+exp(-thetai);
+
+        Cost(iteration)=R*(norm(ui))^2+ (Ad*x+Bd*ui-x_r)'*Q*(Ad*x+Bd*ui-x_r)+((x-x_r)'*pit*(x-x_r))+exp(-thetai);
         if iteration > 1
             error_cost = abs(Cost(iteration) - Cost(iteration-1));
         else
             error_cost = abs(Cost(iteration));
         end
         [error_cost,error1,error2,error3]
-    
-    
+
+
         iteration = iteration + 1;   
     end
-    
+
+    % ========= END OF MULTI-AGENT ====================
+
+    % ================== LQR METHOD ====================
+    % Define LQR weight matrices
+    Q = [10 0; 0 0.1];  % State error weighting
+    R = 1;         % Control input weighting
+
+    % Compute the DLQR gain matrix
+    [K, ~, ~] = dlqr(Ad, Bd, Q, R);
+
+    % Compute feedforward gain G
+    G = inv(C * inv(eye(size(Ad)) - Ad + Bd * K) * Bd);
+    ui = -K * x;  % + G * x_r;
+    % ================== LQR METHOD END ====================
 
 
     % update x with f() and g()
@@ -158,6 +187,8 @@ for i=2:steps+1
     x2_new = x(2,1) + dt * (x(1,1)^3+(x(2,1)^2+1)*ui);
     x = [x1_new,x2_new]';
     x_set(i,:,:)=x;
+    % eig_set(i,:) = min(eig(pit));
+    % theta_set(i,:) = thetai;
  
 end
 

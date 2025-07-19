@@ -10,14 +10,14 @@ import numpy as np
 from tqdm import tqdm
 import os
 import argparse
-import time
+import ast
 
 # import NN structure:
 from network import P_Net
 
 from Objective_Formulations_new import ObjectiveFormulation
-from test_converge_PI import test_performance_index, test_trajectory
-from dataprocessing import Data_Purify, dataloading
+from test_converge_PI import test_performance_index
+from dataprocessing import dataloading
 
 
 # define a nonlinear function
@@ -37,7 +37,73 @@ def criterion3_nonlinear_function(x, data):
     return torch.norm(x, dim=1).mean()  # Return the norm of the new state vector
 
 
+def test_visualization(model, test_loader):
+    '''
+    Test the model and visualize the results.
+    :param model: The trained model.
+    :param test_loader: DataLoader for the test dataset.
+    :return: None
+    '''
+    model.eval()
+    data_input = []
+    data_output = []
+    data_label = []
+    with torch.no_grad():
+        for inputs, targets in test_loader:
+            outputs = model(inputs.to(device))
+            data_input.append(inputs.numpy())
+            data_output.append(outputs.cpu().numpy())
+            data_label.append(targets.numpy())
+    data_input = np.concatenate(data_input, axis=0)
+    data_output = np.concatenate(data_output, axis=0)
+    data_label = np.concatenate(data_label, axis=0)
 
+    # Plot the results
+    x = data_input[:, 0]
+    bar_width = 0.08  # small width to prevent overlap
+    alpha = 0.5       # transparency
+
+    plt.figure(figsize=(12, 8))
+
+    # p1
+    plt.subplot(221)
+    plt.bar(x , data_label[:, 0], width=bar_width, color='r', alpha=alpha, label='Label p1')
+    plt.bar(x , data_output[:, 0], width=bar_width, color='b', alpha=alpha, label='Output p1')
+    plt.title('p1 vs Input x1')
+    plt.xlabel('Input x1')
+    plt.ylabel('p1')
+    plt.legend()
+
+    # p2
+    plt.subplot(222)
+    plt.bar(x , data_label[:, 1], width=bar_width, color='r', alpha=alpha, label='Label p2')
+    plt.bar(x , data_output[:, 1], width=bar_width, color='b', alpha=alpha, label='Output p2')
+    plt.title('p2 vs Input x1')
+    plt.xlabel('Input x1')
+    plt.ylabel('p2')
+    plt.legend()
+
+    # p3
+    plt.subplot(223)
+    plt.bar(x , data_label[:, 2], width=bar_width, color='r', alpha=alpha, label='Label p3')
+    plt.bar(x , data_output[:, 2], width=bar_width, color='b', alpha=alpha, label='Output p3')
+    plt.title('p3 vs Input x1')
+    plt.xlabel('Input x1')
+    plt.ylabel('p3')
+    plt.legend()
+
+    # u
+    plt.subplot(224)
+    plt.bar(x , data_label[:, 3], width=bar_width, color='r', alpha=alpha, label='Label u')
+    plt.bar(x , data_output[:, 3], width=bar_width, color='b', alpha=alpha, label='Output u')
+    plt.title('u vs Input x1')
+    plt.xlabel('Input x1')
+    plt.ylabel('u')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, 'test_visualization.png'))
+    plt.show()    
 
 
 
@@ -52,10 +118,9 @@ print(f"Using device: {device}")
 # Parse the command-line arguments
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset',type=str,default='mathmatical_simulation/dataset/MM_DiffSys_dataset.csv', help='corresponding theta dataset')
+parser.add_argument('--dataset',type=str,default='semi_supervison/dataset/dt01/MM_DiffSys_dataset_trajectories_boundary.csv', help='corresponding theta dataset')
 parser.add_argument('--reference',type=float,default=0, help='reference of dataset')
 parser.add_argument('--lr',type=float, default=5e-4, help='learning rate')
-parser.add_argument('--init_pts_mode', type=str, default='bias',help='input your pretrained weight path if you want')
 parser.add_argument('--pre_trained', type=str, default='',help='input your pretrained weight path if you want')
 args = parser.parse_args()
 print(args)
@@ -63,78 +128,13 @@ print(args)
 save_path = f'./weights'
 os.makedirs(save_path, exist_ok=True)
 x_r = np.array([args.reference])
-data_tmp = Data_Purify(args.dataset,x_r,p_max=10,u_max=1e5)
 
 
-# ============== Import and Purify Data ==============
-# # import dataset 
-input_data_valid,label_data_valid = data_tmp.purified_data()
+data_opt_set, label_opt_set, trajectories_in_val, trajectories_label_val = dataloading(args.dataset)
 
 
 
-if args.init_pts_mode == 'uniform':
-    # METHOD 1: select 16 data points uniformly:
-    x1 = np.linspace(-5, 5, 4)
-    x2 = np.linspace(-5, 5, 4)
-    X_selected = np.array(np.meshgrid(x1, x2)).T.reshape(-1, 2)
-elif args.init_pts_mode == 'boundary':
-    # METHOD 2: select 16 data points on the operation boundary
-    # 4 points along each edge
-    x = np.linspace(-5, 5, 5)
-    y = np.linspace(-5, 5, 5)
 
-    # Get boundary points
-    bottom = np.vstack((x, -5 * np.ones(5)))
-    top    = np.vstack((x,  5 * np.ones(5)))
-    left   = np.vstack((-5 * np.ones(3), y[1:4]))   # exclude corners
-    right  = np.vstack((5 * np.ones(3), y[1:4]))
-
-    # Combine all and transpose to get shape (16, 2)
-    X_selected = np.hstack((bottom, top, left, right)).T
-elif args.init_pts_mode == 'bias':
-    # METHOD 3: select 16 data points on a specified region.
-    np.random.seed(0)
-
-    # Generate 12 points near the origin (e.g., from a normal distribution with small std)
-    near_origin = np.random.normal(loc=-0.3, scale=0.4, size=(12, 2))
-
-    # Generate 4 points near the boundary [-5, 5]
-    boundary_radius = 5
-    angles = np.linspace(0, 2 * np.pi, 5)[:-1]  # 4 angles
-    boundary_points = np.stack([
-        boundary_radius * np.cos(angles),
-        boundary_radius * np.sin(angles)
-    ], axis=1)
-
-    # Combine points
-    X_selected = np.vstack([near_origin, boundary_points])
-
-
-plt.plot(X_selected[:,0],X_selected[:,1],'*', markersize=10, color='red', label='Selected Points')
-plt.grid(linestyle='--')
-plt.xlabel('x1')
-plt.ylabel('x')
-plt.title('Selected Points for Initial Training')
-plt.tight_layout()
-plt.savefig(os.path.join('semi_supervison/weights', f'selected_points_{args.init_pts_mode}.png'))
-plt.show()
-plt.close()
-
-# find the closest points in input_data_valid
-input_data_valid = np.array(input_data_valid)
-closest_indices = []
-for point in X_selected:
-    distances = np.linalg.norm(input_data_valid[:, :2] - point, axis=1)
-    closest_index = np.argmin(distances)
-    closest_indices.append(closest_index)
-
-# select the corresponding label_data_valid
-data_opt_set = input_data_valid[closest_indices].tolist()
-label_opt_set = np.array(label_data_valid)[closest_indices].tolist()
-
-
-
-T_start =  time.time()
 # ================== NN Zero Training ==============
 
 # update input_data_valid and label_data_valid
@@ -176,9 +176,11 @@ global true_label_location, true_label_values
 true_label_values = []
 true_label_location = []
 
+X_init = np.array(data_opt_set)[:,:2]
+
 def data_update_set_function(model,device):
-    x1 = np.linspace(-5, 5, 200)
-    x2 = np.linspace(-5, 5, 200)
+    x1 = np.linspace(-3, 3, 300)
+    x2 = np.linspace(-3, 3, 300)
     X = np.array(np.meshgrid(x1, x2)).T.reshape(-1, 2)
     # generate input data: [x1,x2,xr]: shape (1000000, 3)
     data_update_set = np.concatenate((X, np.full((X.shape[0], 1), x_r)), axis=1)
@@ -196,13 +198,12 @@ def data_update_set_function(model,device):
     global true_label_location, true_label_values
     if len(true_label_location) == 0:
         for i, point in enumerate(X):
-            close_flag = np.all(np.isclose(point, X_selected,atol=0.02), axis=1)
+            close_flag = np.all(np.isclose(point,X_init,atol=0.02), axis=1)
             if np.any(close_flag):
                 index = np.where(close_flag)[0][0]
                 label_update_set[i] = label_opt_set[index]
                 true_label_location.append(True)  # Store the index of the point
                 true_label_values.append(label_opt_set[index])  # Store the label value
-
             else:
                 true_label_location.append(False)  # Store the index of the point
 
@@ -392,7 +393,7 @@ for i in range(total_iterations):
             # update lr and gradient
             optimizer.step()
             scheduler.step()
-            # print(f'Epoch [{epoch+1}/{num_epochs}], Loss1: {loss1.item():.4f}, Loss2: {loss2.item():.4f}')
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss1: {loss1.item():.4f}, Loss2: {loss2.item():.4f}')
 
 
             loss_avg.append([loss1.item(), loss2.item()])  # Store the loss value for plotting
@@ -407,8 +408,7 @@ for i in range(total_iterations):
         test_loss_set.append(testloss)
         epoch += 1
 
-T_end = time.time() - T_start
-print(f'--------------Total Cost: {T_end}s----------------')
+
 # plot training loss and testing loss
 train_loss_set = np.array(train_loss_set)
 test_loss_set = np.array(test_loss_set)
@@ -434,12 +434,4 @@ plt.close()
 torch.save(model.state_dict(), os.path.join('semi_supervison/weights','weight_{}_{}.pth'.format(w1[i], w2[i])))
 test_PI, num_in = test_performance_index(model, device=device, xr=0.0, model_path=os.path.join('semi_supervison/weights','weight_{}_{}.pth'.format(w1[i], w2[i])))
 
-
-model.load_state_dict(torch.load('semi_supervison/weights/weight_0.9_0.1.pth', map_location=device))
-# PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path='semi_supervison/weights/weight_0.9_0.1.pth')
-# print(f'Performance Index: {PI} | Valid Trajectories Count: {valid_cnt}')
-
-data_opt_set, label_opt_set, trajectories_in_val, trajectories_label_val = dataloading('semi_supervison/dataset/dt01/MM_DiffSys_dataset_trajectories_uniform.csv')
-# trajectory_plot(trajectories_in_val, model)
-test_trajectory(model, (trajectories_in_val, trajectories_label_val), device)
 

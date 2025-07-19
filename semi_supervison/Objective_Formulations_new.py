@@ -35,7 +35,7 @@ class ObjectiveFormulation():
         self.x_r = torch.tensor(x_r).to(device)
         
 
-        self.c = torch.tensor(1e3).to(device)
+        self.c = torch.tensor(1e2).to(device)
         self.acti_fun = torch.nn.Sequential(torch.nn.Tanh(),torch.nn.ReLU())
 
 
@@ -70,9 +70,42 @@ class ObjectiveFormulation():
 
 
         return obj_values.mean() + constraint1.mean() + constraint2.mean() + constraint3.mean()
+    
+    def forward_any(self, x, nn_output):
+        """
+        Forward pass for the objective function and constraints.
+        :param data: input data, shape (batch_size, 6)
+        :return: objective values and constraints
+        """
+        # input x: [x1,x2,xr]
+        # nn_output: [p1, p2, p3, u, theta]
+        
+        # data order: x1, x2, u, p1, p2, p3, theta
+
+        data = torch.cat((x[:,:2], nn_output[:,3].unsqueeze(1),nn_output[:,:3],nn_output[:,-1].unsqueeze(1)), dim=1)
+        # Objective values
+        obj_values = self.obj_fun(data)
+
+
+        # Constraints
+        constraint1 = self.constrain1(data)
+        constraint2 = self.constrain2(data)
+        constraint3 = self.constrain3(data)
+
+        # if obj_values.mean()<0 or constraint1.mean()<0 or constraint2.mean()<0:
+        #     print(f'Objective values: {obj_values.mean()}, Constraint1: {constraint1.mean()}, Constraint2: {constraint2.mean()}')
+        #     obj_values = self.obj_fun(data)
+
+        #     # Constraints
+        #     constraint1 = self.constrain1(data)
+        #     constraint2 = self.constrain2(data)
+
+
+        return obj_values + constraint1+ constraint2 + constraint3.squeeze(-1)
 
 
     def obj_fun(self,data):
+        # input shape: (bs,6): arg order: x1, x2, u, p1, p2, p3, theta
         # expend for objective values.
         P = torch.stack([data[:, 3:5], data[:, 4:6]], dim=1)
 

@@ -120,3 +120,67 @@ class Data_Purify():
         plt.title('Parameter p3')
         plt.close()
 
+
+def dataloading(filename):
+    '''
+    Load initial data point and corresponding trajectories.
+    '''
+    # Load the CSV dataset
+    df = pd.read_csv(filename, header=None)
+
+    # Data Format:
+    # x1 p1 p2 u
+    # x2 p2 p3 theta
+
+    # Assuming the first row is the header, adjust if needed
+    data = df.values  # Transpose to have shape (2, n)
+
+    
+    init_input = [] # shape (n, 3): # [x1, x2, xr], n = number of data points
+    init_label = []     # shape (n, 5): [p1, p2, p3, u, theta]
+    trajectories_init_input = [] # shape (n, 3,steps) 
+    trajectories_init_label = [] # shape (n, 5,steps)
+    instance = 2
+
+    for row in range(data.shape[0]//instance):
+
+        init_input.append([data[instance*row,0],data[instance*row+1,0],0])
+        u = data[instance*row,3]
+        p1 = data[instance*row,1]
+        p2 = data[instance*row,2]
+        p3 = data[instance*row+1,2]
+        theta = data[instance*row+1,3]
+
+        init_label.extend([[p1, p2, p3, u, theta]])
+
+        temp_x = []
+        temp_label = []
+        for col in range(data.shape[1]//4):
+            # collect trajectories:
+            temp_x.append([data[instance*row,4*col],data[instance*row+1,4*col],0])
+            
+            u = data[instance*row,4*col+3]
+            p1 = data[instance*row,4*col+1]
+            p2 = data[instance*row,4*col+2]
+            p3 = data[instance*row+1,4*col+2]
+            theta = data[instance*row+1,4*col+3]
+
+            temp_label.extend([[p1, p2, p3, u, theta]])
+
+        trajectories_init_input.append(temp_x)
+        trajectories_init_label.append(temp_label)
+
+    # norm the input label:
+    # init_label_max = np.max(np.array(init_label), axis=0)
+    # init_label = np.array(init_label) / init_label_max
+    # init_label = init_label.tolist()
+
+
+    # data_theta = np.tile(xr,(len(data_u),1))
+    print('----------DATA SUMMARY------------')
+    print(f'Number of initial data points: {len(init_input)}')
+    print(f'Number of trajectories: {len(trajectories_init_input)}')
+    print('----------------------------------')
+
+    return init_input, init_label, trajectories_init_input, trajectories_init_label
+
