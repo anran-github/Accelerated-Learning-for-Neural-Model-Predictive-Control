@@ -1,7 +1,6 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 import torch.nn as nn
-import torch.nn.functional as F
 import torch
 from torch.optim import lr_scheduler
 
@@ -53,10 +52,10 @@ print(f"Using device: {device}")
 # Parse the command-line arguments
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset',type=str,default='semi_supervison/dataset/MM_DiffSys_dataset.csv', help='corresponding theta dataset')
+parser.add_argument('--dataset',type=str,default='mathmatical_simulation/dataset/MM_DiffSys_dataset.csv', help='corresponding theta dataset')
 parser.add_argument('--reference',type=float,default=0, help='reference of dataset')
 parser.add_argument('--lr',type=float, default=5e-4, help='learning rate')
-parser.add_argument('--init_pts_mode', type=str, default='uniform',help='input your pretrained weight path if you want')
+parser.add_argument('--init_pts_mode', type=str, default='bias',help='input your pretrained weight path if you want')
 parser.add_argument('--pre_trained', type=str, default='',help='input your pretrained weight path if you want')
 args = parser.parse_args()
 print(args)
@@ -138,9 +137,13 @@ label_opt_set = np.array(label_data_valid)[closest_indices].tolist()
 T_start =  time.time()
 # ================== NN Zero Training ==============
 
+# update input_data_valid and label_data_valid
+input_data_valid = data_opt_set
+label_data_valid = label_opt_set
+
 # convert to tensor
-X_train_tensor = torch.Tensor(data_opt_set)
-y_train_tensor = torch.Tensor(label_opt_set)
+X_train_tensor = torch.Tensor(input_data_valid)
+y_train_tensor = torch.Tensor(label_data_valid)
 
 train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
@@ -209,35 +212,6 @@ def data_update_set_function(model,device):
 
     return data_update_set, torch.tensor(label_update_set)
 
-
-global diff_currentdata_optdata,w1_set, w2_set
-
-w1_set = []
-w2_set = []
-diff_currentdata_optdata = []
-
-def currentdataset_vs_optdataset(model,device):
-    # give input x from opt dataset, find nn output:
-    model.eval()
-    with torch.no_grad():
-        input_nn = torch.tensor(input_data_valid,dtype=torch.float32, device=device)
-        nn_output = model(input_nn)
-
-    opt_label = torch.tensor(label_data_valid,dtype=torch.float32, device=device)
-    # loss = F.mse_loss(nn_output,opt_label,reduction='none')
-    loss = torch.abs(nn_output-opt_label)
-    # output order: [p1, p2, p3, u, theta]
-    l_mean, l_std = torch.std_mean(loss,dim=0, keepdim=True)
-    loss_selected = loss[loss[:,3]<(l_mean[:,3]+0.5*l_std[:,3])]
-    loss_mean = loss_selected.mean(dim=0)
-
-    global diff_currentdata_optdata
-    diff_currentdata_optdata.append(loss_mean.cpu().tolist())
-
-    if len(diff_currentdata_optdata) != 0:
-        if np.min(np.array(diff_currentdata_optdata)[:,3]) == loss_mean.cpu().tolist()[3]:
-            # save model
-            torch.save(model.state_dict(), os.path.join('semi_supervison/weights','weight_best.pth'))
 
 
 
@@ -322,18 +296,10 @@ def test(model, test_loader,epoch,w1_tensor,w2_tensor):
             else:
                 test_loss += loss.cpu().item() * inputs.size(0)
 
-
             # loop.set_postfix(loss=f"{loss_set[-1]:.4f}", refresh=True)
     test_loss /= len(test_loader.dataset)
 
-    # compare each element with dataset:
-    currentdataset_vs_optdataset(model,device)
-
-    global Loss_init, delta_Loss, Loss_old, w1_set, w2_set
-
-    w1_set.append(w1_tensor.item())
-    w2_set.append(w2_tensor.item())
-
+    global Loss_init, delta_Loss, Loss_old
     if epoch == 0:
         Loss_init = test_loss
         Loss_old = test_loss
@@ -359,23 +325,14 @@ def test(model, test_loader,epoch,w1_tensor,w2_tensor):
 
 
 batch_size = 4096
-num_epochs = 50
-total_iterations = 30
+num_epochs = 20
+total_iterations = 10
 
 
 
 # define w1, w2 change values:
-# w1 = np.linspace(0.1, 0.9, total_iterations)
-# w1 = 0.125*np.linspace(0.5,2.7,total_iterations)**2
-# w1 = 0.025*np.linspace(1,6.,10)**2
-w1 = (0.6*torch.erf(torch.linspace(-3,0.001,10))+0.8).tolist()
-w1.extend(10*[w1[-1]])
-[w1.insert(0,w1[0]) for _ in range(10)]
-w1 = np.array(w1)
-
-# w1 = np.exp(np.linspace(-2.5,-0.01,total_iterations))
-
-w2 = 1 - w1
+w1 = np.linspace(0.1, 0.9, total_iterations)
+w2 = np.linspace(0.9, 0.1, total_iterations)
 train_loss_set = []
 train_loss_set_separate = []
 test_loss_set = []
@@ -387,10 +344,10 @@ for i in range(total_iterations):
     w2_tensor = torch.tensor(w2[i], dtype=torch.float32, device=device)
 
     # update the data_update_set and label_update_set
-    input_data_generated, label_generated = data_update_set_function(model, device)
+    input_data_valid, label_data_valid = data_update_set_function(model, device)
 
     # split into train and test set
-    X_train, X_test, y_train, y_test = train_test_split(input_data_generated, label_generated, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(input_data_valid, label_data_valid, test_size=0.2, random_state=42)
 
     # create dataset and dataloader
     train_dataset = TensorDataset(torch.tensor(X_train), torch.tensor(y_train))
@@ -398,15 +355,6 @@ for i in range(total_iterations):
 
     test_dataset = TensorDataset(torch.tensor(X_test), torch.tensor(y_test))
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-
-
-    # reset lr and optimizer
-    # if i == 0:
-    #     lr_iteration = lr_zero 
-    # optimizer = torch.optim.RMSprop(model.parameters(), lr=lr_iteration)
-    # scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs-1, eta_min=lr_iteration*0.9)
-
 
 
     epoch = 0
@@ -423,8 +371,6 @@ for i in range(total_iterations):
     # while test_delta_Loss > 0.01 and epoch<num_epochs:
 
         model.train()
-
-
 
         loss_avg = [] # Reset loss_avg for each epoch
         for inputs, targets in train_loader:
@@ -461,10 +407,6 @@ for i in range(total_iterations):
         test_loss_set.append(testloss)
         epoch += 1
 
-
-    # update lr for new iterations
-    # lr_iteration = scheduler.get_last_lr()[0]
-
 T_end = time.time() - T_start
 print(f'--------------Total Cost: {T_end}s----------------')
 # plot training loss and testing loss
@@ -487,51 +429,13 @@ plt.savefig(os.path.join('semi_supervison/weights', 'train_test_loss.png'))
 plt.show()
 plt.close()
 
-data_plot = np.array(diff_currentdata_optdata)
-x = np.arange(data_plot.shape[0])
-plt.subplot(311)
-plt.plot(x,data_plot[:,3], label='error u', color='red',marker='o',linewidth=2)
-plt.title('Difference between updating data and optimization data')
-plt.ylabel('Diff')
-plt.grid(linestyle='--')
-plt.subplot(312)
-plt.plot(x,np.array(w1_set), label='w1', color='blue',marker='*',linewidth=2)
-plt.ylabel('w1')
-plt.grid(linestyle='--')
-plt.subplot(313)
-plt.plot(x,np.array(w2_set), label='w2', color='green',marker='*',linewidth=2)
-plt.ylabel('w2')
-plt.grid(linestyle='--')
 
-# plt.subplot(512)
-# plt.plot(x,data_plot[:,0], label='error p1', color='red',marker='o',linewidth=2)
-# plt.ylabel('Diff')
-# plt.grid(linestyle='--')
-# plt.subplot(513)
-# plt.plot(x,data_plot[:,1], label='error p2', color='red',marker='o',linewidth=2)
-# plt.ylabel('Diff')
-# plt.grid(linestyle='--')
-# plt.subplot(514)
-# plt.plot(x,data_plot[:,2], label='error p3', color='red',marker='o',linewidth=2)
-# plt.ylabel('Diff')
-# plt.grid(linestyle='--')
-# plt.subplot(515)
-# plt.plot(x,data_plot[:,4], label='error theta', color='red',marker='o',linewidth=2)
-# plt.ylabel('Diff')
-# plt.grid(linestyle='--')
-
-plt.xlabel('Iterations')
-plt.legend()
-plt.savefig(os.path.join('semi_supervison/weights', 'data_Diff.png'))
-plt.show()
-plt.close()
+# save model
+torch.save(model.state_dict(), os.path.join('semi_supervison/weights','weight_{}_{}.pth'.format(w1[i], w2[i])))
+test_PI, num_in = test_performance_index(model, device=device, xr=0.0, model_path=os.path.join('semi_supervison/weights','weight_{}_{}.pth'.format(w1[i], w2[i])))
 
 
-# test_PI, num_in = test_performance_index(model, device=device, xr=0.0, model_path=os.path.join('semi_supervison/weights','weight_{}_{}.pth'.format(w1[i], w2[i])))
-test_PI, num_in = test_performance_index(model, device=device, xr=0.0, model_path=os.path.join('semi_supervison/weights','weight_best.pth'))
-
-
-# model.load_state_dict(torch.load('semi_supervison/weights/weight_0.9_0.1.pth', map_location=device))
+model.load_state_dict(torch.load('semi_supervison/weights/weight_0.9_0.1.pth', map_location=device))
 # PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path='semi_supervison/weights/weight_0.9_0.1.pth')
 # print(f'Performance Index: {PI} | Valid Trajectories Count: {valid_cnt}')
 
