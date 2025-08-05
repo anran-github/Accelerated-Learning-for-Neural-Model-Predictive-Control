@@ -6,11 +6,29 @@ given a set of input x and the output from the trained neural network.
 import torch
 import numpy as np
 from network import P_Net
-from Objective_Formulations_new import ObjectiveFormulation
+from Objective_Formulations_new import ObjectiveFormulation_ORI
+from Objective_Formulations_mpc import ObjectiveFormulation
 import argparse
 import matplotlib.pyplot as plt
+import control
+
 
 dt = 0.1
+
+# % read A,B,C,D matrices:
+A = np.array([[0, 1], [0, -1.7873]])
+B = np.array([[0],[-1.7382]])
+C = np.array([[1,0]])
+D = 0
+
+ss = control.ss(A, B, C, D)
+Gd = control.c2d(ss,dt, method='zoh') # 'zoh':assuming control input be constant between sampling intervals.
+
+Ad = torch.tensor(Gd.A,dtype=torch.float32)
+Bd = torch.tensor(Gd.B,dtype=torch.float32)
+Cd = torch.tensor(Gd.C,dtype=torch.float32)
+Dd = torch.tensor(Gd.D,dtype=torch.float32)
+
 
 def test_performance_index(model,device,xr=0., model_path=None):
     """
@@ -50,7 +68,7 @@ def test_performance_index(model,device,xr=0., model_path=None):
 
 
     # =========== Euler Method Simulation ============
-    criterion2 = ObjectiveFormulation(device=device)
+    criterion2 = ObjectiveFormulation_ORI(device=device)
     iterations = 300
     xset = torch.zeros((iterations,pts_count, 2))  # Initialize state set
     select_mask = torch.ones_like(x0[:,0], dtype=torch.bool)  # Mask to select valid points
@@ -157,7 +175,7 @@ def trajectory_plot(true_data,model_predict_data):
     plt.grid()
     plt.legend(['Optimization', 'Trained NN'])
     plt.tight_layout()
-    plt.savefig('semi_supervison/weights/trajectory_compare.png')
+    plt.savefig('semi_supervison/DroneZ_MPC_weights/trajectory_compare.png')
     plt.show()
     plt.close()
 
@@ -199,6 +217,76 @@ def test_trajectory(model,val_trajectory,device):
 
     # compare other paramters with true label
     label_vals = np.array(label_vals)  # Ensure label_vals is in the correct shape
+    objective_formulation = ObjectiveFormulation_ORI()
+    # Forward pass through the objective formulation
+    
+    xset = xset.reshape(-1,2) 
+    nn_output_set = nn_output_set.reshape(-1,5)  # Reshape to match the expected input shape
+    obj_nn_output = objective_formulation.forward_any(torch.tensor(xset).cpu(), torch.tensor(nn_output_set).cpu())
+    
+    label_x = torch.tensor(label_x,dtype=torch.float32)[:,:,:2].reshape(-1,2) 
+    label_vals = torch.tensor(label_vals,dtype=torch.float32).reshape(-1,5) 
+    
+    obj_label_vals = objective_formulation.forward_any(label_x,label_vals)
+    # plot two values:
+    plt.figure(figsize=(10, 6))
+    plt.plot(obj_nn_output.cpu().numpy(), label='NN Output J+Ci', color='red')
+    plt.plot(obj_label_vals.cpu().numpy(), label='Optimization J+Ci', color='blue')
+    # display average values as text blocks on the figure:
+    avg_nn_output = obj_nn_output.mean().item()
+    avg_label_vals = obj_label_vals.mean().item()
+    plt.text(200, 150, f'Avg NN Output: {avg_nn_output:.2f}', color='red', fontsize=15)
+    plt.text(200, 140, f'Avg Opt Output: {avg_label_vals:.2f}', color='blue', fontsize=15)
+    plt.title('Objective Function Values +Constraints Comparison')
+    plt.xlabel('Steps')
+    plt.ylabel('Objective Function Value + Constraints')
+    plt.grid(linestyle='--', color='gray')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('semi_supervison/weights/trajectory_obj_compare.png')
+    plt.show()
+    plt.close()
+
+
+def test_trajectory_MPC(model,val_trajectory,device):
+
+    label_x, label_vals = val_trajectory
+
+    steps = len(label_x[0])  # Number of steps in the trajectory
+    
+
+    init_pts = np.array(label_x)[:,0,:]  # Initial points for the trajectories
+
+    init_pts_in = torch.tensor(init_pts, dtype=torch.float32).to(device)
+    
+    # Initialize the state set
+    xset = torch.zeros((init_pts_in.shape[0], steps, 2)).to(device)
+    nn_output_set = torch.zeros((init_pts_in.shape[0], steps, 50)).to(device)
+
+    for i in range(steps):
+        with torch.no_grad():
+            model.eval()
+            nn_output = model(init_pts_in)
+            # nn_output order: # [p1, p2, p3, u, theta] 
+
+            # save state
+            xset[:, i, :] = init_pts_in[:,:2]
+            nn_output_set[:, i, :] = nn_output
+
+            # update state
+            u = nn_output[:, 0].unsqueeze(1)
+            Add = torch.tile(Ad, (u.shape[0], 1, 1)).to(device)
+            Bdd = torch.tile(Bd, (u.shape[0], 1, 1)).to(device)
+            x_prime = init_pts_in[:, :2].unsqueeze(1).transpose(1, 2)
+            x_new = Add @ x_prime + Bdd @ u.unsqueeze(1)
+            init_pts_in = torch.cat((x_new.squeeze(-1), init_pts_in[:,2].unsqueeze(-1)), dim=1)
+
+
+    trajectory_plot(label_x, xset.cpu().numpy())
+
+    '''
+    # compare other paramters with true label
+    label_vals = np.array(label_vals)  # Ensure label_vals is in the correct shape
     objective_formulation = ObjectiveFormulation()
     # Forward pass through the objective formulation
     
@@ -228,6 +316,8 @@ def test_trajectory(model,val_trajectory,device):
     plt.savefig('semi_supervison/weights/trajectory_obj_compare.png')
     plt.show()
     plt.close()
+    '''
+
 
 
 

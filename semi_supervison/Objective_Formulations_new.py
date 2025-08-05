@@ -6,7 +6,7 @@ import numpy as np
 
 #============== DEFINE: OBJECTIVE FUNCTION AND CONSTRAINS:=====================
 
-class ObjectiveFormulation():
+class ObjectiveFormulation_ORI():
     """
     Objective function and constraints for the optimization problem.
     """
