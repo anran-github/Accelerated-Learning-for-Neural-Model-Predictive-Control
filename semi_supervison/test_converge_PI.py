@@ -261,6 +261,7 @@ def test_trajectory_MPC(model,val_trajectory,device):
     
     # Initialize the state set
     xset = torch.zeros((init_pts_in.shape[0], steps, 2)).to(device)
+    uset = torch.zeros((init_pts_in.shape[0], steps, 1)).to(device)
     nn_output_set = torch.zeros((init_pts_in.shape[0], steps, 50)).to(device)
 
     for i in range(steps):
@@ -275,6 +276,8 @@ def test_trajectory_MPC(model,val_trajectory,device):
 
             # update state
             u = nn_output[:, 0].unsqueeze(1)
+            uset[:, i, :] = u
+
             Add = torch.tile(Ad, (u.shape[0], 1, 1)).to(device)
             Bdd = torch.tile(Bd, (u.shape[0], 1, 1)).to(device)
             x_prime = init_pts_in[:, :2].unsqueeze(1).transpose(1, 2)
@@ -283,6 +286,52 @@ def test_trajectory_MPC(model,val_trajectory,device):
 
 
     trajectory_plot(label_x, xset.cpu().numpy())
+
+    # plot x1,x2,u with three sub plot
+    label_x = np.array(label_x)[:,:,:2] #(16,100,2)
+    xset = xset.cpu().numpy()
+    diff_x = np.mean(label_x-xset,axis=0)
+    diff_x1 = diff_x[:,0]
+    diff_x2 = diff_x[:,1]
+    diff_x = np.mean(diff_x,axis=1)
+
+    uset = uset.cpu().numpy().squeeze(-1)
+    label_u = np.array(label_vals)[:,:,0]
+    diff_u = np.mean(label_u-uset,axis=0)
+
+
+    x = np.arange(diff_x.shape[0])
+    plt.figure(figsize=(10, 6))
+    plt.subplot(411)
+    plt.plot(x,diff_x,linestyle='-',color='blue', marker='*', markersize=3)
+    plt.grid(linestyle='--', color='gray')    
+    plt.ylabel('Diff of mean |x|')
+    plt.legend()
+    plt.title("Difference between MPC Control and NN Control (MPC Out-NN Out)")
+
+    plt.subplot(412)
+    plt.plot(x,diff_x1,linestyle='-',color='blue', marker='*', markersize=3)
+    plt.grid(linestyle='--', color='gray')    
+    plt.ylabel('Diff of mean |x1|')
+    plt.legend()
+    
+    plt.subplot(413)
+    plt.plot(x,diff_x2,linestyle='-',color='blue', marker='*', markersize=3)
+    plt.grid(linestyle='--', color='gray')    
+    plt.ylabel('Diff of mean |x2|')
+    plt.legend()
+
+    plt.subplot(414)
+    plt.plot(x,diff_u,linestyle='-',color='blue', marker='*', markersize=3)
+    plt.grid(linestyle='--', color='gray')    
+    plt.ylabel('Diff of mean |u|')
+    plt.xlabel('Steps')
+    plt.legend()
+
+    plt.savefig('semi_supervison/DroneZ_MPC_weights/diff_x1x2u_compare.png')
+    plt.show()
+    plt.close()
+    
 
     '''
     # compare other paramters with true label
@@ -321,20 +370,19 @@ def test_trajectory_MPC(model,val_trajectory,device):
 
 
 
-'''
+# '''
 if __name__ == "__main__":
 
     # # test
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = P_Net(output_size=5).to(device)
-    ckpt_path = 'semi_supervison/weights/weight_0.9_0.1_uniform.pth'
+    model = P_Net(output_size=50).to(device)
+    ckpt_path = 'semi_supervison/DroneZ_MPC_weights/weight_best.pth'
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
     PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path=ckpt_path)
     # print(f'Performance Index: {PI} | Valid Trajectories Count: {valid_cnt}')
 
-    from dataprocessing import dataloading
-    data_opt_set, label_opt_set, trajectories_in_val, trajectories_label_val = dataloading('semi_supervison/dataset/dt01/MM_DiffSys_dataset_trajectories_uniform.csv')
-    # trajectory_plot(trajectories_in_val, model)
-    test_trajectory(model, (trajectories_in_val, trajectories_label_val), device)
+    from dataprocessing import dataloading_MPC
+    x_trajectory, trajectories_in_val, trajectories_label_val = dataloading_MPC('DroneZ_MPC/dataset/droneZ_MPC_16trajectory.csv')
+    test_trajectory_MPC(model, (x_trajectory, trajectories_label_val), device)
 
-'''
+# '''

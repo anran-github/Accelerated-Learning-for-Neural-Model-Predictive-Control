@@ -28,13 +28,13 @@ Q = [20 0;0 10];          % State cost
 R = 0.1;            % Input cost
 
 % Initial state
-x0 = [0.5; -1];
+x0 = [2.5; 1];
 
 % Simulation length
 Tsim = 70;
 
 % Reference point
-xref = [1.5; 0];
+xref = [1; 0];
 
 % Variables to store result
 xHist = zeros(2, Tsim+1);

@@ -8,7 +8,7 @@ clear all
 %%  Basic Settings
 
 % Save the data to a text file
-filename = "drone_mpc_z.csv";
+filename = "droneZ_MPC_16pts_uniform_multi_xr.csv";
 
 
 
@@ -33,6 +33,17 @@ N = 50;              % Prediction horizon
 Q = [20 0;0 10];          % State cost
 R = 0.1;            % Input cost
 
+%% Init pts sampling methods
+
+% method 1: uniformly sampled
+init_pts = zeros(16,2);
+cnt = 1;
+for r=linspace(0.5,2.5,4)
+    for c=linspace(-1,1,4)
+        init_pts(cnt,:) = [r,c];
+        cnt = cnt + 1;
+    end
+end
 
 %% Resume data collection task
 
@@ -59,7 +70,7 @@ end
 
 %% Loop starts
 
-steps = 0.02;
+steps = 0.1;
 
 if Resume_Flag == 1
     x1_range = x1_resume:steps:2.5;

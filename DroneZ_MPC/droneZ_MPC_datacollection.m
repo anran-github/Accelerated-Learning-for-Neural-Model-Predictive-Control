@@ -8,7 +8,7 @@ clear all
 %%  Basic Settings
 
 % Save the data to a text file
-filename = "drone_mpc_z.csv";
+filename = "drone_mpc_z_multi_ref.csv";
 
 
 
@@ -25,8 +25,7 @@ Bd=Gd.B;
 Cd=Gd.C;
 Dd=Gd.D;
 
-% reference pose
-x_r = [1.5;0];
+
 
 % MPC weights
 N = 50;              % Prediction horizon
@@ -67,53 +66,61 @@ else
     x1_range = 0.5:steps:2.5;
 end
 
-count = 1;
-for px = x1_range
+tic
 
-    x2_range = -1:steps:1;
-    if Resume_Flag == 1 % run only once.
-        x2_range = x1_dot_resume:steps:1;
-    end
+% loop starts
+for r=1:0.1:2
 
-    for px_dot = x2_range
-
-        % save only for next data point
-        if Resume_Flag == 1
-            Resume_Flag=0;
-            continue
-        end
-
-        % current state
-        x = [px;px_dot];
-
-        % optimize
-        [u] = mpc_fun(Ad,Bd,Q,R,x,x_r,N);
-        
-
-        chache_matrix(1,1:2) = x';
-        chache_matrix(1,3) = x_r(1);
-        chache_matrix(1,4:3+N) = u;
-        
-
-        result_matrix(count,:) = chache_matrix;
+    count = 1;
+    % reference pose
+    x_r = [r;0];
     
-
-        % save data every count numbers.
-        if count == 9 || (px==x1_range(size(x1_range,2)) && px_dot == 1) 
-            writematrix(result_matrix, filename,'WriteMode','append');
-            clear result_matrix chache_matrix
-            count = 1;            % Clear variables
-        else
-            count = count+1;
+    for px = x1_range
+    
+        x2_range = -1:steps:1;
+        if Resume_Flag == 1 % run only once.
+            x2_range = x1_dot_resume:steps:1;
         end
-
-
-        clear('yalmip')
-   
+    
+        for px_dot = x2_range
+    
+            % save only for next data point
+            if Resume_Flag == 1
+                Resume_Flag=0;
+                continue
+            end
+    
+            % current state
+            x = [px;px_dot];
+    
+            % optimize
+            [u] = mpc_fun(Ad,Bd,Q,R,x,x_r,N);
+            
+    
+            chache_matrix(1,1:2) = x';
+            chache_matrix(1,3) = x_r(1);
+            chache_matrix(1,4:3+N) = u;
+            
+    
+            result_matrix(count,:) = chache_matrix;
+        
+    
+            % save data every count numbers.
+            if count == 20 || (px==x1_range(size(x1_range,2)) && px_dot == 1) 
+                writematrix(result_matrix, filename,'WriteMode','append');
+                clear result_matrix chache_matrix
+                count = 1;            % Clear variables
+            else
+                count = count+1;
+            end
+    
+    
+            clear('yalmip')
+       
+        end
     end
+
 end
 
 
-
-
-
+toc
