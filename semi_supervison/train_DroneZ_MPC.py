@@ -75,25 +75,29 @@ elif args.init_pts_mode == 'boundary':
     
 elif args.init_pts_mode == 'bias':
     # METHOD 3: select 16 data points on a specified region.
-    np.random.seed(0)
-
-    # Generate 12 points near the origin (e.g., from a normal distribution with small std)
-    near_origin = np.random.normal(loc=1.5, scale=0.4, size=(12, 2))
-
-    # Generate 4 points near the boundary [-5, 5]
-    boundary_radius = 5
-    angles = np.linspace(0, 2 * np.pi, 5)[:-1]  # 4 angles
-    boundary_points = np.stack([
-        boundary_radius * np.cos(angles),
-        boundary_radius * np.sin(angles)
-    ], axis=1)
+    center_pts = np.array([1.5, 0])
+    distance_x1 = 0.5
+    distance_x2 = 0.5
+    sampling_pts = []
+    
+    for i in range(1,5):
+        distance_x1 /= 2
+        distance_x2 /= 2
+        angle = (i%2)*np.pi / 4 # either 45 or 0 degrees
+        for j in range(4):
+            angle_j = angle + j*np.pi / 2
+            sampling_pts.append([center_pts[0] + distance_x1 * np.cos(angle_j),
+                                center_pts[1] + distance_x2 * np.sin(angle_j)])
+            
 
     # Combine points
-    X_selected = np.vstack([near_origin, boundary_points])
+    X_selected = np.vstack(sampling_pts)
 
 
 plt.plot(X_selected[:,0],X_selected[:,1],'*', markersize=10, color='red', label='Selected Points')
 plt.grid(linestyle='--')
+# plt.xlim(0.5, 2.5)
+# plt.ylim(-1, 1)
 plt.xlabel('x1')
 plt.ylabel('x')
 plt.title('Selected Points for Initial Training')
