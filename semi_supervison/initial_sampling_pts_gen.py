@@ -144,13 +144,16 @@ def sampling_data_generation(mode='uniform',sampling_num=16, xr=1.5):
     # plt.scatter(initial_states[:, 0], initial_states[:, 1], c='b', label='Initial States')
     # plt.xlim(x1_min - 0.5, x1_max + 0.5)
     # plt.ylim(x2_min - 0.5, x2_max + 0.5)
-    # plt.axvline(xr, color='r', linestyle='--', label='Reference State')
+    # plt.scatter(xr, 0, c='r', marker='*', s=200, label='Reference Point')
     # plt.xlabel('State x1')
     # plt.ylabel('State x2')
     # plt.title(f'Initial Sampling States ({mode})')
     # plt.grid()
     # plt.legend()
+    # plt.tight_layout()
+    # plt.savefig(f'semi_supervison/DroneZ_MPC_weights/initial_sampling_{mode}_xr{xr}.png', dpi=300)
     # plt.show()
+    # plt.close()
 
 
     # stack xr to each state
