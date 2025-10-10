@@ -17,7 +17,7 @@ import time
 from network import P_Net
 
 from Objective_Formulations_mpc import ObjectiveFormulation
-from test_converge_PI import  test_trajectory_MPC
+from test_converge_PI import  test_trajectory_MPC, currentdataset_vs_optdataset
 from dataprocessing import DroneZ_Data_Purify, dataloading_MPC
 from UpdatingDataset import UpdatingDataset, TruthAwareSampler
 from loss_function import RunningAverage
@@ -35,13 +35,15 @@ running_avg2.avg = torch.tensor([350]).to(device)
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset',type=str,default='DroneZ_MPC/dataset/drone_mpc_z.csv', help='corresponding theta dataset')
-parser.add_argument('--lr',type=float, default=1e-3, help='learning rate')
+parser.add_argument('--opt_dataset',type=str,default='semi_supervison/dataset/drone_mpc_z_multi_ref.csv', help='corresponding theta dataset')
+parser.add_argument('--lr',type=float, default=1e-4, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=4096, help='input batch size for training')
-parser.add_argument('--sampling_mode', type=str, default='dense_center',help='uniform, dense_center, dense_boundary')
+parser.add_argument('--sampling_num_per_xr', type=int, default=10,help='number of samples per reference trajectory for updating dataset')
+parser.add_argument('--sampling_mode', type=str, default='uniform',help='uniform, dense_center, dense_boundary')
+parser.add_argument('--omega_mode',type=str, default='erf', help='omega changing mode:constant, linear, erf, vshape')
 parser.add_argument('--total_iterations', type=int, default=10,help='total iterations for updating dataset and training')
 parser.add_argument('--num_epochs', type=int, default=5,help='number of epochs for each iteration')
-parser.add_argument('--pre_trained', type=str, default='',help='input your pretrained weight path if you want')
+parser.add_argument('--pre_trained', type=str, default='semi_supervison/DroneZ_MPC_weights/Benchmark-MPC.pth',help='input your pretrained weight path if you want')
 args = parser.parse_args()
 print(args)
 
@@ -50,11 +52,33 @@ print(args)
 save_path = f'semi_supervison/DroneZ_MPC_weights'
 os.makedirs(save_path, exist_ok=True)
 
+# ====== Load Modle and Optimal Dataset========
+model = P_Net(output_size=50).to(device)
+data_tmp = DroneZ_Data_Purify(args.opt_dataset,u_max=1e5)
+opt_dataset = data_tmp.return_data()
+
 
 # ============== Load Updating Dataset ==============
-dataset = UpdatingDataset(mode=args.sampling_mode, sampling_num_per_xr=10)
+dataset = UpdatingDataset(mode=args.sampling_mode, sampling_num_per_xr=args.sampling_num_per_xr)
 
 data_opt_set, label_opt_set = dataset[dataset.TruthData_Mask]
+
+
+# Evaluate Saved model
+if args.pre_trained != '':
+    model.load_state_dict(torch.load(args.pre_trained, map_location=device,weights_only=True))
+    print(f'Pre-trained model {args.pre_trained} loaded!')
+
+    # test PI after each iteration
+    PI_x, PI_u = dataset.test_performance_index(model, device=device, model_path=None)
+    
+    # validate current dataset vs optimal dataset
+    diff_opt = currentdataset_vs_optdataset(model,device,opt_dataset)
+    print(f'Current dataset vs Optimal dataset MSE: {diff_opt}')
+    print(f'Pre-trained model PI_x: {PI_x}, PI_u: {PI_u}')
+    print('---------------------End-------------------------')
+    exit()
+
 
 
 T_start =  time.time()
@@ -63,7 +87,6 @@ T_start =  time.time()
 train_dataset_opt = TensorDataset(data_opt_set, label_opt_set)
 train_loader_opt = DataLoader(train_dataset_opt, batch_size=32, shuffle=True)
 
-model = P_Net(output_size=50).to(device)
 
 lr_zero = args.lr
 epoch_NN0 = 50
@@ -103,21 +126,46 @@ criterion2 = ObjectiveFormulation(device=device)
 total_iterations = args.total_iterations
 
 # define w1, w2 change values:
-w1 = (-0.3*torch.erf(torch.linspace(-2.5,2.5,total_iterations))+0.5).tolist()
-# w2.extend(10*[w2[-1]])
-# [w2.insert(0,w2[0]) for _ in range(10)]
+if args.omega_mode == 'linear':
+    # Method 1: linear change
+    w1 = np.linspace(1.0, 0., total_iterations)
+elif args.omega_mode == 'erf':
+    # Method 2: erf change
+    w1 = (-0.5*torch.erf(torch.linspace(-2.5,2.5,total_iterations))+0.5).tolist()
+elif args.omega_mode == 'vshape':
+    # Method 3: vshape change
+    half_iter = total_iterations // 2
+    w1_half = np.linspace(1.0, 0., half_iter)
+    if total_iterations % 2 == 0:
+        w1 = np.concatenate((w1_half, w1_half[::-1]))
+    else:
+        w1 = np.concatenate((w1_half, [0.5], w1_half[::-1]))
+elif args.omega_mode == 'constant':
+    # Method 4: constant change
+    w1 = 1.0 * np.ones(total_iterations)
+# # w2.extend(10*[w2[-1]])
+# # [w2.insert(0,w2[0]) for _ in range(10)]
 w1 = np.array(w1)
 
+w2 = 1 - w1
+
 # # plot w1 change
-# plt.figure()
-# plt.plot(np.arange(len(w1)),w1)
+# plt.subplot(211)
+# plt.plot(np.arange(w1.shape[0]),w1, label='w1',marker='o',linewidth=2)
 # plt.xlabel('Iteration')
-# plt.ylabel('w1 value')
-# plt.title('w1 value change over iterations')
+# plt.ylabel(r'$\omega_1$ value')
+# plt.title(r'$\omega$ value change over iterations')
 # plt.grid(linestyle='--')
+# # plot w2 change
+# plt.subplot(212)
+# plt.plot(np.arange(w2.shape[0]),w2, label='w2',color='orange', marker='*',linewidth=2)
+# plt.xlabel('Iteration')
+# plt.ylabel(r'$\omega_2$ value')
+# plt.grid(linestyle='--')
+# plt.tight_layout()
+# plt.savefig(os.path.join(save_path, f'omega_change_{args.omega_mode}.png'), dpi=300)
 # plt.show()
 # plt.close()
-w2 = 1 - w1
 
 # set of losses without timing omega:
 loss1_set = []
@@ -131,9 +179,11 @@ lr_set = []
 
 # ================ Iteration Start ================
 optimizer = torch.optim.RMSprop(model.parameters(), lr=args.lr)
-scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_epochs, eta_min=args.lr*0.95)
+scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(total_iterations*args.num_epochs), eta_min=args.lr*0.1)
 
 PI_x_bext = np.inf
+PI_u_bext = np.inf
+diff_optdata_nnout = []
 for i in range(total_iterations):
 
     sampler = TruthAwareSampler(dataset, batch_size=args.batch_size, truth_indices=dataset.TruthData_Mask)
@@ -176,7 +226,7 @@ for i in range(total_iterations):
 
             loss_avg.append([loss1.item(), loss2.item()])  # Store the loss value for plotting
 
-            scheduler.step()
+        scheduler.step()
 
         lr_set.append(scheduler.get_last_lr()[0])
         # average loss1 and loss2 before timing omega:
@@ -193,17 +243,27 @@ for i in range(total_iterations):
 
     # test PI after each iteration
     PI_x, PI_u = dataset.test_performance_index(model, device=device, model_path=None)
+    
+    # validate current dataset vs optimal dataset
+    diff_opt = currentdataset_vs_optdataset(model,device,opt_dataset)
+    print(f'Current dataset vs Optimal dataset MSE: {diff_opt}')
+    diff_optdata_nnout.append(diff_opt)
+
+    
     if PI_x < PI_x_bext:
         PI_x_bext = PI_x
-        torch.save(model.state_dict(), os.path.join(save_path, f'weight_X{PI_x:.2f}_U{PI_u:.2f}.pth'))
-        print(f'New best model saved with PI_x: {PI_x_bext}')
+        PI_u_bext = PI_u
+        torch.save(model.state_dict(), 
+                   os.path.join(save_path, f'{args.sampling_mode}_S{args.sampling_num_per_xr}_{args.omega_mode}_Iter{args.total_iterations}_Epoch{args.num_epochs}.pth'))
+        print(f'New best model saved with PI_x: {PI_x_bext}, PI_u: {PI_u_bext} at iteration {i+1}')
 
     # update the data_update_set and label_update_set
     dataset.update_with_model(model, device=device)
 
 T_end = time.time() - T_start
 print(f'--------------Total Cost: {T_end}s----------------')
-
+print(f'The best PI_x: {PI_x_bext:.3f}, PI_u: {PI_u_bext:.3f}')
+print('---------------Training Finished-------------------')
 
 # plot training loss and testing loss
 train_loss_set = np.array(train_loss_set)
@@ -214,7 +274,7 @@ loss2_set = train_loss_set_separate[:,1]
 plt.figure(figsize=(10, 6))
 plt.subplot(211)
 plt.plot(x, loss1_set, label='Loss1 (MSE)', color='red',marker='o',linewidth=2)
-plt.ylim(0, np.mean(loss1_set)+2*np.std(loss1_set))
+plt.ylim(0, np.mean(loss1_set)+3*np.std(loss1_set))
 plt.grid(linestyle='--')
 plt.xlabel('Iteration')
 plt.ylabel('Loss1')
@@ -222,15 +282,24 @@ plt.title('Training Loss1 (MSE)')
 plt.legend()
 plt.subplot(212)
 plt.plot(x, loss2_set, label='Loss2 (MPC)', color='blue',marker='*',linewidth=2)
-plt.ylim(0, np.mean(loss2_set)+2*np.std(loss2_set))
+plt.ylim(150, np.mean(loss2_set)+3*np.std(loss2_set))
 plt.grid(linestyle='--')
 plt.xlabel('Iteration')
 plt.ylabel('Loss2')
 plt.title('Training Loss2 (MPC)')
 plt.legend()
-plt.savefig(os.path.join('semi_supervison/DroneZ_MPC_weights', 'train_loss.png'))
+plt.savefig(os.path.join(save_path, 'train_loss.png'))
 plt.show()
 plt.close()
+
+# plot difference between current dataset and optimal dataset
+plt.figure()
+plt.plot(np.arange(len(diff_optdata_nnout)), diff_optdata_nnout, marker='o', linewidth=2)
+plt.xlabel('Iteration')
+plt.ylabel('Difference')
+plt.title('Difference between Current Dataset and Optimal Dataset')
+plt.grid(linestyle='--')
+plt.savefig(os.path.join(save_path, 'diff_current_optimal_dataset.png'), dpi=300)
 
 
 
@@ -247,443 +316,6 @@ plt.close()
 
 
 '''
-
-# ================= Generate another dataset ==============
-global true_label_location, true_label_values
-true_label_values = []
-true_label_location = []
-
-def data_update_set_function(model,device):
-    x1 = np.linspace(0.5, 2.5, 200)
-    x2 = np.linspace(-1, 1, 200)
-    X = np.array(np.meshgrid(x1, x2)).T.reshape(-1, 2)
-    # generate input data: [x1,x2,xr]: shape (1000000, 3)
-    data_update_set = np.concatenate((X, np.full((X.shape[0], 1), x_r)), axis=1)
-    data_update_set = torch.Tensor(data_update_set).to(device)
-
-
-    model.eval()
-    with torch.no_grad():
-        # output order: [p1, p2, p3, u, theta]
-        label_update_set = model(data_update_set).cpu().numpy()
-
-
-    # update label with 16 data points, other points are set to zero
-    # remember the location for future update
-    global true_label_location, true_label_values
-    if len(true_label_location) == 0:
-        for i, point in enumerate(X):
-            close_flag = np.all(np.isclose(point, X_selected,atol=0.01), axis=1)
-            if np.any(close_flag):
-                index = np.where(close_flag)[0][0]
-                label_update_set[i] = label_opt_set[index]
-                true_label_location.append(True)  # Store the index of the point
-                true_label_values.append(label_opt_set[index])  # Store the label value
-
-            else:
-                true_label_location.append(False)  # Store the index of the point
-
-    else:
-        # use current true_label_location to update label_update_set
-        label_update_set[true_label_location] = true_label_values
-
-    # ensure the optimal data points are included in the training set
-    in_excluded = data_update_set[torch.logical_not(torch.tensor(true_label_location))]
-    label_excluded = label_update_set[torch.logical_not(torch.tensor(true_label_location))]
-    # split into train and test set
-    X_train, X_test, y_train, y_test = train_test_split(in_excluded, torch.tensor(label_excluded), test_size=0.2, random_state=42)
-
-    # ensure the optimal data points are included in the training set
-    X_train =torch.cat((X_train, torch.tensor(data_opt_set).to(device)), dim=0)
-    y_train = np.concatenate((y_train, np.array(label_opt_set)), axis=0)
-    y_train = torch.tensor(y_train, dtype=torch.float32, device=device)
-
-    return X_train, X_test, y_train, y_test
-
-
-global diff_currentdata_optdata,w1_set, w2_set
-
-w1_set = []
-w2_set = []
-diff_currentdata_optdata = []
-
-def currentdataset_vs_optdataset(model,device):
-    # give input x from opt dataset, find nn output:
-    model.eval()
-    with torch.no_grad():
-        input_nn = torch.tensor(input_data_valid,dtype=torch.float32, device=device)
-        nn_output = model(input_nn)
-
-    opt_label = torch.tensor(label_data_valid,dtype=torch.float32, device=device)
-    # loss = F.mse_loss(nn_output,opt_label,reduction='none')
-    loss = torch.abs(nn_output-opt_label)
-
-    # l_mean, l_std = torch.std_mean(loss,dim=0, keepdim=True)
-    # loss_selected = loss[loss[:,3]<(l_mean[:,3]+0.5*l_std[:,3])]
-    # loss_mean = loss_selected.mean(dim=0)
-
-    # for MPC problem, we only consider the first u value:
-    loss_mean = loss.mean(dim=0)[0]
-
-    global diff_currentdata_optdata
-    diff_currentdata_optdata.append(loss_mean.cpu().tolist())
-
-    if len(diff_currentdata_optdata) != 0:
-        if np.min(np.array(diff_currentdata_optdata)) == loss_mean.cpu().tolist():
-            # save model
-            torch.save(model.state_dict(), os.path.join('semi_supervison/DroneZ_MPC_weights','weight_best.pth'))
-
-
-
-# ================= NN Training with above mixture Data ==============
-# Note: Above data set will be updated every eopch
-
-#  Define Loss Function and Optimizer
-criterion = nn.MSELoss()
-criterion2 = ObjectiveFormulation(device=device)
-
-
-# Define a running average class to normalize losses
-class RunningAverage:
-    def __init__(self):
-        
-        self.memory_length = 30
-        self.avg = torch.tensor([]).to(device)
-
-    def update(self, value):
-
-        if self.avg.shape[0]==0:
-            self.avg = value.detach()
-            self.avg = self.avg.reshape(1,1)
-            self.alpha = 1.
-
-        elif self.avg<value:
-            # self.avg = torch.cat((self.avg,value.detach().reshape(1,1)),dim=0)
-            self.avg = value.detach().reshape(1,1)
-
-        # elif len(self.avg) == self.memory_length:
-        #     self.avg,_ = torch.sort(self.avg,descending=True)
-        #     # self.avg = self.avg[1:,:]
-
-        # mean_val = torch.mean(self.avg)
-
-        return value / (self.avg + 1e-8)
-
-
-
-running_avg1 = RunningAverage()
-running_avg2 = RunningAverage()
-
-def loss_function(w1,w2,nn_inputs, outputs, targets,init_restart,mode='train'):
-    loss1 = criterion(outputs, targets.to(device))
-    # loss1_2 = criterion(outputs[:,3], targets[:,3].to(device))
-    # loss1_3 = criterion(outputs[:,4], targets[:,4].to(device))
-    # loss1 = loss1_1 + 10*loss1_2 + loss1_3
-
-    loss2 = criterion2.forward(nn_inputs.to(device), outputs.to(device))
-    loss2 = loss2.mean()  # Ensure loss2 is a scalar
-    # loss3 = criterion3_nonlinear_function(nn_inputs.to(device), outputs.to(device))
-
-
-    # if init_restart==True:
-    #     running_avg1.avg = torch.tensor([]).to(device)
-    #     running_avg2.avg = torch.tensor([]).to(device)
-
-    if mode == 'train':
-        loss1 = running_avg1.update(loss1)
-        loss2 = running_avg2.update(loss2)
-
-    elif mode=='test':
-        # do not update in test
-        loss1 /= torch.mean(running_avg1.avg)
-        loss2 /= torch.mean(running_avg2.avg)
-
-    
-
-    # Then clip if necessary
-    # loss1 = torch.clamp(loss1, max=1.0)
-    # loss2 = torch.clamp(loss2, max=1.0)
-    # loss3 = torch.clamp(loss3, max=1.0)
-
-    return w1*loss1, running_avg2.alpha*w2*loss2
-
-    # return loss1, loss2, loss3
-
-
-def test(model, test_loader,epoch,w1_tensor,w2_tensor):
-    test_loss = 0.0
-    u_losses = 0
-    model.eval()
-    init_restart = False
-    with torch.no_grad():
-        loop = tqdm(test_loader)
-        for inputs, targets in loop:
-            outputs = model(inputs.to(device))
-
-
-            loss1, loss2 = loss_function(w1_tensor,w2_tensor,inputs, outputs,
-                                          targets.to(device),init_restart,mode='test')
-            init_restart = False
-            loss = loss1 + loss2
-
-
-            if not 'cuda' in device.type:
-                test_loss += loss.item() * inputs.size(0)
-            else:
-                test_loss += loss.cpu().item() * inputs.size(0)
-
-
-            # loop.set_postfix(loss=f"{loss_set[-1]:.4f}", refresh=True)
-    test_loss /= len(test_loader.dataset)
-
-    # compare each element with dataset:
-    currentdataset_vs_optdataset(model,device)
-
-    global Loss_init, delta_Loss, Loss_old, w1_set, w2_set
-
-    w1_set.append(w1_tensor.item())
-    w2_set.append(w2_tensor.item())
-
-    if epoch == 0:
-        Loss_init = test_loss
-        Loss_old = test_loss
-        delta_Loss = 1
-        print(f'Test Loss: {test_loss:.4f}| Delta Loss: {delta_Loss:.4f}')
-
-    
-    else:
-        delta_Loss = abs(test_loss - Loss_old)/Loss_init
-        print(f'Test Loss: {test_loss:.4f}| Delta Loss: {delta_Loss:.4f}')
-        Loss_old = test_loss
-
-
-    return delta_Loss, test_loss
-    
-
-
-
-    # # test PI
-    # # test_PI, num_in = test_performance_index(model, device=device, xr=0.0)
-
-
-
-
-batch_size = 4096
-num_epochs = 15
-total_iterations = 30
-
-
-
-# define w1, w2 change values:
-w1 = (0.6*torch.erf(torch.linspace(-3,0.001,10))+0.8).tolist()
-# w1 = (0.6*torch.erf(torch.linspace(-3,0.478,10))+0.69).tolist()
-# w1 = (torch.erf(torch.linspace(-1.82,1.82,10))).tolist()
-w1.extend(10*[w1[-1]])
-[w1.insert(0,w1[0]) for _ in range(10)]
-w1 = np.array(w1)
-
-
-# Time range
-# t = np.linspace(0, 30, total_iterations)
-# # Sine function
-# w1 = 0.3 * np.sin(2 * np.pi * t / 30 - np.pi / 2) + 0.5
-# # w1 = np.exp(np.linspace(-2.5,-0.01,total_iterations))
-
-w2 = 1 - w1
-train_loss_set = []
-train_loss_set_separate = []
-test_loss_set = []
-lr_set = []
-
-gradient1_set1 = []
-gradient1_set2 = []
-
-for i in range(total_iterations):
-
-    print(f'Iteration {i+1}/{total_iterations}, w1={w1[i]}, w2={w2[i]}')
-    w1_tensor = torch.tensor(w1[i], dtype=torch.float32, device=device)
-    w2_tensor = torch.tensor(w2[i], dtype=torch.float32, device=device)
-
-    # update the data_update_set and label_update_set
-    X_train, X_test, y_train, y_test = data_update_set_function(model, device)
-
-    # create dataset and dataloader
-    train_dataset = TensorDataset(X_train, y_train)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-
-    test_dataset = TensorDataset(X_test, y_test)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-
-
-    # reset lr and optimizer
-    # if i == 0:
-        # lr_iteration = lr_zero 
-
-    # optimizer = torch.optim.RMSprop(model.parameters(), lr=lr_iteration)
-    # scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=lr_iteration*0.95)
-
-
-
-    epoch = 0
-
-    # define terminal condition:
-    global Loss_init, delta_Loss, Loss_old
-
-
-    test_delta_Loss = 1
-    init_restart = True
-
-    # ============= run epochs given fixed w1, w2 =============
-    while epoch<num_epochs:
-    # while test_delta_Loss > 0.01 and epoch<num_epochs:
-
-        model.train()
-
-
-
-        loss_avg = [] # Reset loss_avg for each epoch
-        for inputs, targets in train_loader:
-            
-            # add optimal data into mini-batch
-            inputs = torch.cat((inputs, X_train_tensor_opt.to(device)), dim=0)
-            targets = torch.cat((targets, y_train_tensor_opt.to(device)), dim=0)
-            # shuffle the inputs and targets
-            indices = torch.randperm(inputs.size(0))
-            inputs = inputs[indices]
-            targets = targets[indices]
-            # print(f'inputs shape: {inputs.shape}, targets shape: {targets.shape}')
-
-
-            optimizer.zero_grad()
-            # output order: [p1, p2, p3, u, theta]
-            outputs = model(inputs.to(device))
-            
-            # Calculate losses
-            loss1, loss2 = loss_function(w1_tensor,w2_tensor,inputs, 
-                                         outputs, targets.to(device),init_restart)
-            init_restart = False
-
-            loss = loss1 + loss2 
-
-
-            # Measure gradients from loss1 (MSE)
-            optimizer.zero_grad()
-            loss1.backward(retain_graph=True)  # retain_graph only if you need the graph for loss2
-            grad_norm1 = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=100)
-
-            # Store norm for analysis/logging
-            # print(f'Grad norm from Loss1 (MSE): {grad_norm1:.4f}')
-
-            # Reset gradients before computing loss2 gradients
-            optimizer.zero_grad()
-            loss2.backward()
-            grad_norm2 = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=100)
-            # print(f'Grad norm from Loss2 (MPC): {grad_norm2:.4f}')
-
-            # (Optional) Now do the actual training step, combining both losses
-            # optimizer.zero_grad()
-            # combined_loss = loss1 +  loss2
-            # combined_loss.backward()
-            optimizer.step()
-            # running_avg2.alpha = grad_norm1/grad_norm2
-
-            # loss.backward()
-            # # torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=100)
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5)
-            # # update lr and gradient
-            # optimizer.step()
-            # # print(f'Epoch [{epoch+1}/{num_epochs}], Loss1: {loss1.item():.4f}, Loss2: {loss2.item():.4f}')
-
-
-            loss_avg.append([loss1.item(), loss2.item()])  # Store the loss value for plotting
-
-            scheduler.step()
-
-        lr_set.append(scheduler.get_last_lr()[0])
-        gradient1_set1.append(grad_norm1.item())
-        gradient1_set2.append(grad_norm2.item())
-        # average loss1 and loss2 before timing omega:
-        train_loss_set_separate.append((np.sum(loss_avg,axis=0)/len(loss_avg))*np.array([1/w1[i], 1/w2[i]]))
-        train_loss_set.append(np.sum(np.sum(loss_avg,axis=0)/len(loss_avg)))
-        
-
-        # validation:
-        test_delta_Loss,testloss = test(model, test_loader, epoch, w1_tensor,w2_tensor)
-        test_loss_set.append(testloss)
-        epoch += 1
-
-
-    # update lr for new iterations
-    # lr_iteration = scheduler.get_last_lr()[0]
-
-T_end = time.time() - T_start
-print(f'--------------Total Cost: {T_end}s----------------')
-# plot training loss and testing loss
-train_loss_set = np.array(train_loss_set)
-test_loss_set = np.array(test_loss_set)
-train_loss_set_separate = np.array(train_loss_set_separate)
-x = np.arange(train_loss_set.shape[0])
-plt.figure(figsize=(10, 6))
-
-plt.plot(x, train_loss_set, label='Train Loss', color='red',marker='o',linewidth=2)
-plt.plot(x, train_loss_set_separate[:,0], label='Train Loss1',linestyle='dashed', color='green')
-plt.plot(x, train_loss_set_separate[:,1], label='Train Loss2',linestyle='dashed', color='orange')
-plt.plot(x, test_loss_set, label='Test Loss', color='blue',marker='*',linewidth=2)
-plt.grid(linestyle='--')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.title('Training and Testing Loss')
-plt.legend()
-plt.savefig(os.path.join('semi_supervison/DroneZ_MPC_weights', 'train_test_loss.png'))
-plt.show()
-plt.close()
-
-plt.figure(figsize=(10, 16))
-data_plot = np.array(diff_currentdata_optdata)
-x = np.arange(data_plot.shape[0])
-plt.subplot(611)
-plt.plot(x,data_plot, label='error u', color='red',marker='o',linewidth=2)
-plt.title('Difference between updating data and optimization data')
-plt.ylabel('Diff')
-plt.grid(linestyle='--')
-plt.subplot(612)
-plt.plot(x,np.array(w1_set), label='w1', color='blue',marker='*',linewidth=2)
-plt.ylabel('w1')
-plt.grid(linestyle='--')
-plt.subplot(613)
-plt.plot(x,np.array(w2_set), label='w2', color='green',marker='*',linewidth=2)
-plt.ylabel('w2')
-plt.grid(linestyle='--')
-plt.legend()
-
-
-plt.subplot(614)
-x = range(len(gradient1_set1))
-plt.plot(np.array(x),np.array(gradient1_set1), label='gradient1', color='purple',linewidth=2)
-plt.ylabel('grad1')
-plt.grid(linestyle='--')
-plt.legend()
-
-plt.subplot(615)
-plt.plot(np.array(x),np.array(gradient1_set2), label='gradient2', color='orange',linewidth=2)
-plt.ylabel('grad2')
-plt.grid(linestyle='--')
-plt.legend()
-
-
-
-
-plt.subplot(616)
-x = range(len(lr_set))
-plt.plot(np.array(x),np.array(lr_set),label='learning rate', color='red',linewidth=2)
-plt.grid(linestyle='--')
-plt.ylabel('lr')
-plt.xlabel('Iterations')
-plt.legend()
-plt.savefig(os.path.join('semi_supervison/DroneZ_MPC_weights', 'data_Diff.png'))
-plt.show()
-plt.close()
 
 
 # test_PI, num_in = test_performance_index(model, device=device, xr=0.0, model_path=os.path.join('semi_supervison/DroneZ_MPC_weights','weight_best.pth'))

@@ -11,6 +11,7 @@ from Objective_Formulations_mpc import ObjectiveFormulation
 import argparse
 import matplotlib.pyplot as plt
 import control
+import os
 
 
 dt = 0.1
@@ -370,19 +371,51 @@ def test_trajectory_MPC(model,val_trajectory,device):
 
 
 
-# '''
+def currentdataset_vs_optdataset(model,device, opt_dataset):
+    # give input x from opt dataset, find nn output:
+
+    input_data_valid, label_data_valid = opt_dataset
+
+    model.eval()
+    with torch.no_grad():
+        input_nn = torch.tensor(input_data_valid,dtype=torch.float32, device=device)
+        nn_output = model(input_nn)
+
+    opt_label = torch.tensor(np.array(label_data_valid),dtype=torch.float32, device=device)
+    # loss = F.mse_loss(nn_output,opt_label,reduction='none')
+    loss = torch.abs(nn_output-opt_label)
+
+    # l_mean, l_std = torch.std_mean(loss,dim=0, keepdim=True)
+    # loss_selected = loss[loss[:,3]<(l_mean[:,3]+0.5*l_std[:,3])]
+    # loss_mean = loss_selected.mean(dim=0)
+
+    # for MPC problem, we only consider the first u value:
+    loss_mean = loss.mean(dim=0)[0]
+
+    return loss_mean.cpu().tolist()
+
+    # diff_currentdata_optdata.append(loss_mean.cpu().tolist())
+
+    # if len(diff_currentdata_optdata) != 0:
+    #     if np.min(np.array(diff_currentdata_optdata)) == loss_mean.cpu().tolist():
+    #         # save model
+    #         torch.save(model.state_dict(), os.path.join('semi_supervison/DroneZ_MPC_weights','weight_best.pth'))
+
+
+
+'''
 if __name__ == "__main__":
 
     # # test
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = P_Net(output_size=50).to(device)
-    ckpt_path = 'semi_supervison/DroneZ_MPC_weights/weight_best.pth'
+    ckpt_path = 'semi_supervison/DroneZ_MPC_weights/dense_center_S40_linear_Iter20_Epoch10.pth'
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
-    PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path=ckpt_path)
+    # PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path=ckpt_path)
     # print(f'Performance Index: {PI} | Valid Trajectories Count: {valid_cnt}')
 
     from dataprocessing import dataloading_MPC
     x_trajectory, trajectories_in_val, trajectories_label_val = dataloading_MPC('DroneZ_MPC/dataset/droneZ_MPC_16trajectory.csv')
     test_trajectory_MPC(model, (x_trajectory, trajectories_label_val), device)
 
-# '''
+'''

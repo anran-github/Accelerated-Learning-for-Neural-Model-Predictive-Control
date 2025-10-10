@@ -40,6 +40,7 @@ R = np.array([[0.1]])
 x1_min, x1_max = 0.5, 2.5
 x2_min, x2_max = -1,  1
 xr_min, xr_max = 1.0, 2.0
+u_min, u_max = -0.6, 0.6
 
 
 
@@ -96,7 +97,7 @@ class UpdatingDataset(Dataset):
         # add space for u_seq
         self.data = np.hstack((self.data, np.zeros((self.data.shape[0], N))))
 
-        data_path = f'semi_supervison/dataset/{self.mode}.json'
+        data_path = f'semi_supervison/dataset/{self.mode}_S{int(sampling_num_per_xr)}.json'
 
         if not os.path.exists(data_path):
             t_start = time.time()
@@ -169,7 +170,10 @@ class UpdatingDataset(Dataset):
                 mask = np.ones(len(self.data), dtype=bool)
                 mask[self.TruthData_Mask] = False
 
-                self.data[mask, 3:] = u_seq_pred[mask]
+
+                # self.data[mask, 3:] = u_seq_pred[mask]
+
+                self.data[mask, 3:] = 0.5*self.data[mask, 3:]+0.5*u_seq_pred[mask] # smooth the update
                 print(f"Updated {np.sum(mask)} samples with model predictions.")
                 
             
@@ -281,8 +285,10 @@ class UpdatingDataset(Dataset):
             # calculate PI for u:
             uset = uset[:,select_mask,:]
             Performance_index_u = torch.norm(uset, dim=2).sum(0).mean()
+            # calculate u violation
+            u_violation = torch.sum(torch.abs(uset) > u_max).item()
             
-            print(f'****Valid trajectories: {valid_trajectories}')
+            print(f'****Valid trajectories: {valid_trajectories} | Violation %: {u_violation}****')
             print(f'Performance Index ||x-xr||: {Performance_index:.3f} | Performance Index ||u||: {Performance_index_u:.3f}')
         else:
             print("No trajectories are in the range of [-5, 5]")
