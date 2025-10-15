@@ -288,7 +288,7 @@ class UpdatingDataset(Dataset):
             # calculate u violation
             u_violation = torch.sum(torch.abs(uset) > u_max).item()
             
-            print(f'****Valid trajectories: {valid_trajectories} | Violation %: {u_violation}****')
+            print(f'****Valid trajectories: {valid_trajectories} | Violation: {u_violation}****')
             print(f'Performance Index ||x-xr||: {Performance_index:.3f} | Performance Index ||u||: {Performance_index_u:.3f}')
         else:
             print("No trajectories are in the range of [-5, 5]")
@@ -319,7 +319,109 @@ class UpdatingDataset(Dataset):
             # print(f'Final Objective Function Value: {obj_func_vals.item()}')
 
 
-        return Performance_index, Performance_index_u
+        return Performance_index, Performance_index_u, u_violation
+
+    def test_benchmark_mpc(self,):
+        """
+        Test the performance index of MPC given a reference trajectory xr.
+        Same as test_performance_index but use MPC to get u.
+
+        :param device: The device to run the model on (CPU or GPU).
+        :return: The performance index calculated as the mean of the sum of norms
+        """
+        
+        saved_jsonfile = f'semi_supervison/dataset/Benchmark-MPC-trajectory10000.json'
+        
+        # =========== Input Data Preparation ============
+        pts_count = 10000
+        # Generate random initial states between -5 and 5:
+        torch.manual_seed(42)  # For reproducibility
+        
+        # random select init state from dataset
+        random_indices = np.random.choice(len(self.data), size=pts_count, replace=False)
+        x0 = torch.tensor(self.data[random_indices,:2], dtype=torch.float32)  # Initial states
+        x_r = torch.tensor(self.data[random_indices,2], dtype=torch.float32)
+
+
+        # =========== Euler Method Simulation ============
+        iterations = 300
+
+        if os.path.exists(saved_jsonfile):
+            with open(saved_jsonfile, 'r') as f:
+                trajectory_data = json.load(f)
+            xset = np.array(trajectory_data['xset'])
+            uset = np.array(trajectory_data['uset'])
+            x_r_check = np.array(trajectory_data['xr'])
+
+            # check if need to simulate more
+            if x_r_check.shape[0]< pts_count:
+                print(f"Existing trajectory has {x_r_check.shape[0]} points, need to simulate more to reach {pts_count} points.")
+                x0 = x0[x_r_check.shape[0]:]
+                x_r = x_r[x_r_check.shape[0]:]
+            else:
+                print(f"Existing trajectory has {x_r_check.shape[0]} points, no need to simulate more.")
+      
+
+                # ========== Performance Index Calculation -- Consider ROI ============
+                xset = torch.tensor(xset, dtype=torch.float32)
+                x_r = torch.zeros_like(xset)
+                for i in range(x_r_check.shape[0]):
+                    x_r[iterations*i:iterations*(i+1),0] = x_r_check[i]
+
+                                
+                Performance_index = torch.norm(xset - x_r)
+                # calculate PI for u:
+                uset = torch.tensor(uset, dtype=torch.float32)
+                Performance_index_u = torch.norm(uset)
+                # calculate u violation
+                u_violation = torch.sum(torch.abs(uset) > u_max).item()
+                print(f'Performance Index ||x-xr||: {Performance_index:.3f} | Performance Index ||u||: {Performance_index_u:.3f} | Violation: {u_violation}')
+                
+                return 0
+            
+
+
+        for j in tqdm(range(x0.shape[0])):
+            x = (x0[j]).numpy().reshape(-1,1)
+            xr = (x_r[j]).item()
+
+            xset = np.zeros((iterations, 2))  # Initialize state set
+            uset = np.zeros((iterations, 1))  # Initialize state set
+            
+            for i in range(iterations):
+
+                u = mpc_fun(Ad, Bd, Q, R, x, np.array([xr, 0]).reshape(-1, 1), N)
+
+                xset[i, :] = x.flatten()
+                uset[i,:] = u[0]
+
+
+                x_new = Ad @ x + Bd * u[0]
+
+                # Update state only for inliers
+                x = x_new
+
+
+            if os.path.exists(saved_jsonfile):
+                with open(saved_jsonfile, 'r') as f:
+                    trajectory_data = json.load(f)
+                xset_tmp = np.array(trajectory_data['xset'])
+                uset_tmp = np.array(trajectory_data['uset'])
+                x_r_tmp = np.array(trajectory_data['xr'])
+
+                xset = np.vstack((xset_tmp, xset))
+                uset = np.vstack((uset_tmp, uset))
+                xrset = np.hstack((x_r_tmp, xr))
+            else:
+                xrset = np.array([xr])
+
+            with open(saved_jsonfile, 'w') as f:
+                json.dump({'xset': xset.tolist(),
+                        'uset': uset.tolist(),
+                        'xr': xrset.tolist()}, f)
+
+
+
 
 
 
@@ -369,16 +471,17 @@ class TruthAwareSampler(Sampler):
         return math.ceil(len(self.all_indices) / self.batch_size)
 
 
-'''
+# '''
 if __name__ == "__main__":
     ############ Example of using UpdatingDataset ############
     from torch.utils.data import DataLoader
 
-    dataset = UpdatingDataset(mode='dense_center', sampling_num_per_xr=40)
-    sampler = TruthAwareSampler(dataset, batch_size=1024, truth_indices=dataset.TruthData_Mask)
-    dataloader = DataLoader(dataset, batch_sampler=sampler)
+    dataset = UpdatingDataset(mode='uniform', sampling_num_per_xr=10)
+    dataset.test_benchmark_mpc()
+    # sampler = TruthAwareSampler(dataset, batch_size=1024, truth_indices=dataset.TruthData_Mask)
+    # dataloader = DataLoader(dataset, batch_sampler=sampler)
 
-    for nn_input, u_seq in dataloader:
-        print(nn_input.shape, u_seq.shape)
-        break
-'''
+    # for nn_input, u_seq in dataloader:
+    #     print(nn_input.shape, u_seq.shape)
+    #     break
+# '''

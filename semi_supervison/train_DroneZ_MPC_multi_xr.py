@@ -70,7 +70,7 @@ if args.pre_trained != '':
     print(f'Pre-trained model {args.pre_trained} loaded!')
 
     # test PI after each iteration
-    PI_x, PI_u = dataset.test_performance_index(model, device=device, model_path=None)
+    PI_x, PI_u, u_violation = dataset.test_performance_index(model, device=device, model_path=None)
     
     # validate current dataset vs optimal dataset
     diff_opt = currentdataset_vs_optdataset(model,device,opt_dataset)
@@ -182,6 +182,7 @@ optimizer = torch.optim.RMSprop(model.parameters(), lr=args.lr)
 scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(total_iterations*args.num_epochs), eta_min=args.lr*0.1)
 
 PI_x_bext = np.inf
+u_violation_best = np.inf
 PI_u_bext = np.inf
 diff_optdata_nnout = []
 for i in range(total_iterations):
@@ -242,7 +243,7 @@ for i in range(total_iterations):
     # lr_iteration = scheduler.get_last_lr()[0]
 
     # test PI after each iteration
-    PI_x, PI_u = dataset.test_performance_index(model, device=device, model_path=None)
+    PI_x, PI_u, u_violation = dataset.test_performance_index(model, device=device, model_path=None)
     
     # validate current dataset vs optimal dataset
     diff_opt = currentdataset_vs_optdataset(model,device,opt_dataset)
@@ -250,9 +251,10 @@ for i in range(total_iterations):
     diff_optdata_nnout.append(diff_opt)
 
     
-    if PI_x < PI_x_bext:
+    if PI_x < 17 and u_violation < 2000:
         PI_x_bext = PI_x
         PI_u_bext = PI_u
+        u_violation_best = u_violation
         torch.save(model.state_dict(), 
                    os.path.join(save_path, f'{args.sampling_mode}_S{args.sampling_num_per_xr}_{args.omega_mode}_Iter{args.total_iterations}_Epoch{args.num_epochs}.pth'))
         print(f'New best model saved with PI_x: {PI_x_bext}, PI_u: {PI_u_bext} at iteration {i+1}')
@@ -262,7 +264,7 @@ for i in range(total_iterations):
 
 T_end = time.time() - T_start
 print(f'--------------Total Cost: {T_end}s----------------')
-print(f'The best PI_x: {PI_x_bext:.3f}, PI_u: {PI_u_bext:.3f}')
+print(f'The best PI_x: {PI_x_bext:.3f}, PI_u: {PI_u_bext:.3f}, U violation: {u_violation_best:.3f}')
 print('---------------Training Finished-------------------')
 
 # plot training loss and testing loss

@@ -22,7 +22,7 @@ D = 0;
 sys_d=ss(A,B,C,D);
 
 % Discretize the transfer function with Ts = 3 seconds
-Ts = 0.5;
+Ts = 3;
 sys_ss_d = c2d(sys_d, Ts);
 
 % Get the state-space matrices of the discrete system
@@ -39,7 +39,7 @@ L = place(A_d', C_d', observer_poles)';
 % =================LQR SETTINGS===================
 
 % Define LQR parameters
-Q = [0.1 0;0 10];  % State cost (penalize deviation of states)
+Q = [1 0;0 100];  % State cost (penalize deviation of states)
 R = 0.001;       % Control effort cost (penalize large control inputs)
 
 % Compute the LQR controller gain matrix K
@@ -47,14 +47,14 @@ K = dlqr(A_d, B_d, Q, R);
 
 % Initial conditions
 ambient_t = 20;
-desired_t = 30;
+desired_t = 70;
 x_observer = 0;      % Estimated state (observer)
 
 G = inv(C_d * inv(eye(2) - A_d + B_d * K) * B_d);
 % ref = inv(eye(2) - A_d + B_d * K) * B_d*G*desired_t
 % xr = inv(eye(2) - A_d + B_d * K) * B_d*G*r;
 
-xr=[0;30];
+xr=[0;desired_t-ambient_t];
 
 % ===================LQR END========================
 
@@ -89,7 +89,12 @@ for k = 1:N
     % different control laws for discrete-time system: 
     
     % LQR
-    u = -K * xt +G*desired_t;
+    % u = -K * xt +G*desired_t;
+
+    % MPC
+    horizon = 50;
+    uN = mpc_fun(A_d,B_d,Q,R,xt,xr,horizon);
+    u = uN(1);
 
     % Mutil-Agent: time-consuming
     % [u,P,theta] = multi_agent_algorithm(xt,xr,A_d,B_d,R,Q,K,G)
@@ -130,7 +135,8 @@ for k = 1:N
 
 
     disp(['Computing time: ', num2str(elapsedTime), ' seconds; ', ...
-        'Total Elapsed time: ', num2str(total_time), ' seconds']);
+        ' Current input u: ', num2str(u), ' ; ', ...
+        ' T_current | T_ref: ', num2str(y), '|', num2str(xr(2)), ' Celsius']);
 
 end
 

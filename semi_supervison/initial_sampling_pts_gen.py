@@ -163,7 +163,9 @@ def sampling_data_generation(mode='uniform',sampling_num=16, xr=1.5):
     return initial_states
 
 
-# if __name__ == "__main__":
+'''
+
+if __name__ == "__main__":
 
 #     xr_list = np.linspace(1.0, 2.0, 11).tolist()
 #     total_sampling_pts = []
@@ -177,62 +179,63 @@ def sampling_data_generation(mode='uniform',sampling_num=16, xr=1.5):
 
 
 
-#     # === Simulation ===
-#     # Continuous-time system
-#     A = np.array([[0, 1],
-#                 [0, -1.7873]])
-#     B = np.array([[0],
-#                 [-1.7382]])
-#     C = np.array([[1, 0]])
-#     D = np.array([[0]])
+    # === Simulation ===
+    # Continuous-time system
+    A = np.array([[0, 1],
+                [0, -1.7873]])
+    B = np.array([[0],
+                [-1.7382]])
+    C = np.array([[1, 0]])
+    D = np.array([[0]])
 
-#     # Discretize system
-#     dt = 0.1
-#     Ad, Bd, Cd, Dd, _ = cont2discrete((A, B, C, D), dt)
+    # Discretize system
+    dt = 0.1
+    Ad, Bd, Cd, Dd, _ = cont2discrete((A, B, C, D), dt)
 
-#     # MPC settings
-#     N = 50
-#     Q = np.diag([20, 10])
-#     R = np.array([[0.1]])
+    # MPC settings
+    N = 50
+    Q = np.diag([20, 10])
+    R = np.array([[0.1]])
 
-#     # Initial state
-#     x0 = np.array([2.5, 1])
-#     xref = np.array([1, 0]).reshape(-1, 1)
-#     Tsim = 70
+    # Initial state
+    x0 = np.array([2.5, 1])
+    xref = np.array([1, 0]).reshape(-1, 1)
+    Tsim = 70
 
-#     # Storage
-#     xHist = np.zeros((2, Tsim + 1))
-#     uHist = np.zeros(Tsim)
-#     xHist[:, 0] = x0
+    # Storage
+    xHist = np.zeros((2, Tsim + 1))
+    uHist = np.zeros(Tsim)
+    xHist[:, 0] = x0
 
-#     t_start = time()
+    t_start = time()
 
-#     # Simulation loop
-#     for k in range(Tsim):
-#         u_seq = mpc_fun(Ad, Bd, Q, R, xHist[:, k], xref, N)
-#         uHist[k] = u_seq[0]  # apply first input
-#         xHist[:, k + 1] = Ad @ xHist[:, k] + Bd.flatten() * uHist[k]
+    # Simulation loop
+    for k in range(Tsim):
+        u_seq = mpc_fun(Ad, Bd, Q, R, xHist[:, k], xref, N)
+        uHist[k] = u_seq[0]  # apply first input
+        xHist[:, k + 1] = Ad @ xHist[:, k] + Bd.flatten() * uHist[k]
 
-#     t_end = time()
-#     print(f"Total simulation time: {t_end - t_start:.2f} seconds")
+    t_end = time()
+    print(f"Total simulation time: {t_end - t_start:.2f} seconds")
 
-#     # === Plotting ===
-#     plt.figure(figsize=(10, 6))
+    # === Plotting ===
+    plt.figure(figsize=(10, 6))
 
-#     plt.subplot(2, 1, 1)
-#     plt.plot(range(Tsim + 1), xHist[0, :], 'b', linewidth=2, label='x1')
-#     plt.plot(range(Tsim + 1), xHist[1, :], 'r', linewidth=2, label='x2')
-#     plt.axhline(xref[0], linestyle='--', color='b')
-#     plt.legend()
-#     plt.xlabel('Time Step')
-#     plt.ylabel('States')
-#     plt.title('MPC State Trajectory')
+    plt.subplot(2, 1, 1)
+    plt.plot(range(Tsim + 1), xHist[0, :], 'b', linewidth=2, label='x1')
+    plt.plot(range(Tsim + 1), xHist[1, :], 'r', linewidth=2, label='x2')
+    plt.axhline(xref[0], linestyle='--', color='b')
+    plt.legend()
+    plt.xlabel('Time Step')
+    plt.ylabel('States')
+    plt.title('MPC State Trajectory')
 
-#     plt.subplot(2, 1, 2)
-#     plt.step(range(Tsim), uHist, 'k', linewidth=2)
-#     plt.xlabel('Time Step')
-#     plt.ylabel('Control Input')
-#     plt.title('MPC Control Input')
+    plt.subplot(2, 1, 2)
+    plt.step(range(Tsim), uHist, 'k', linewidth=2)
+    plt.xlabel('Time Step')
+    plt.ylabel('Control Input')
+    plt.title('MPC Control Input')
 
-#     plt.tight_layout()
-#     plt.show()
+    plt.tight_layout()
+    plt.show()
+'''

@@ -22,7 +22,7 @@ D = 0;
 sys_d=ss(A,B,C,D);
 
 % Discretize the transfer function with Ts = 3 seconds
-Ts = 0.5;
+Ts = 2;
 sys_ss_d = c2d(sys_d, Ts);
 
 % Get the state-space matrices of the discrete system
@@ -39,7 +39,7 @@ L = place(A_d', C_d', observer_poles)';
 % =================LQR SETTINGS===================
 
 % Define LQR parameters
-Q = [0.1 0;0 10];  % State cost (penalize deviation of states)
+Q = [0.1 0;0 1000];  % State cost (penalize deviation of states)
 R = 0.001;       % Control effort cost (penalize large control inputs)
 
 % Compute the LQR controller gain matrix K
@@ -47,14 +47,14 @@ K = dlqr(A_d, B_d, Q, R);
 
 % Initial conditions
 ambient_t = 20;
-desired_t = 30;
+
+
 x_observer = 0;      % Estimated state (observer)
 
 G = inv(C_d * inv(eye(2) - A_d + B_d * K) * B_d);
 % ref = inv(eye(2) - A_d + B_d * K) * B_d*G*desired_t
 % xr = inv(eye(2) - A_d + B_d * K) * B_d*G*r;
 
-xr=[0;30];
 
 % ===================LQR END========================
 
@@ -67,8 +67,10 @@ net = importONNXNetwork("heater_NN2.onnx", 'InputDataFormats', {'BC'}, 'OutputDa
 
 
 % Simulation parameters
-T_final = 300;    % Final simulation time
+T_final = 600;    % Final simulation time
 N = T_final / Ts;  % Number of discrete time steps
+stage = 4;
+r=[20*ones(1,N/4), 30*ones(1,N/4), 27*ones(1,N/4),35*ones(1,N/4) ];
 
 % Arrays to store simulation results
 x_store = zeros(2, N);        % Store actual state
@@ -85,11 +87,19 @@ for k = 1:N
     if k == 1
         xt = [x_observer;0];
     end
+    
+    xr = [x_observer(1);r(k)];
+    
 
     % different control laws for discrete-time system: 
     
     % LQR
-    u = -K * xt +G*desired_t;
+    % u = -K * xt +G*desired_t;
+
+    % MPC
+    horizon = 50;
+    uN = mpc_fun(A_d,B_d,Q,R,xt,xr,horizon);
+    u = uN(1);
 
     % Mutil-Agent: time-consuming
     % [u,P,theta] = multi_agent_algorithm(xt,xr,A_d,B_d,R,Q,K,G)
@@ -130,7 +140,8 @@ for k = 1:N
 
 
     disp(['Computing time: ', num2str(elapsedTime), ' seconds; ', ...
-        'Total Elapsed time: ', num2str(total_time), ' seconds']);
+        ' Current input u: ', num2str(u), ' ; ', ...
+        ' T_current | T_ref: ', num2str(y), '|', num2str(xr(2)), ' Celsius']);
 
 end
 
@@ -154,7 +165,7 @@ plot(time, x_store(2, :)+20, 'r', 'LineWidth', 2);
 hold on;
 % plot(time, x_hat_store(2, :), 'r--', 'LineWidth', 2);
 % plot reference
-plot(time,ones(1,size(time,2))*xr(2)+20,'c--', 'LineWidth', 2);
+plot(time,r+ambient_t,'c--', 'LineWidth', 3);
 xlabel('Time [s]');
 ylabel('State x_2');
 legend('Multi-Agent','Reference');
