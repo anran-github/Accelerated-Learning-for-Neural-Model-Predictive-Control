@@ -13,9 +13,9 @@ def dlqr(A, B, Q, R):
     return K, P
 
 
-def mpc_fun(Ad, Bd, Q, R, x0, xref, N):
+def mpc_fun(Ad, Bd, Q, R, x0, xref, N, u_min=-0.6, u_max=0.6):
     """MPC optimization using scipy.optimize with box constraints"""
-    u_min, u_max = -0.6, 0.6
+    # u_min, u_max = -0.6, 0.6
     K, P = dlqr(Ad, Bd, Q, R)
 
     def cost_fn(u):

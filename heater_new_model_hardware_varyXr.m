@@ -12,7 +12,7 @@ D = 0;
 sys_d=ss(A,B,C,D);
 
 % Discretize the transfer function with Ts = 3 seconds
-Ts = 2;
+Ts = 5;
 sys_ss_d = c2d(sys_d, Ts);
 
 % Get the state-space matrices of the discrete system
@@ -52,7 +52,7 @@ G = inv(C_d * inv(eye(2) - A_d + B_d * K) * B_d);
 
 % ================== NN SETTINGS =========================
 % Load ONNX model
-net = importONNXNetwork("heater_NN2.onnx", 'InputDataFormats', {'BC'}, 'OutputDataFormats', {'BC'});
+net = importONNXNetwork("Heater_Results/uniform_S10_erf_Iter20_Epoch10.onnx", 'InputDataFormats', {'BC'}, 'OutputDataFormats', {'BC'});
 
 % ==================NN setting end =========================
 
@@ -61,7 +61,7 @@ net = importONNXNetwork("heater_NN2.onnx", 'InputDataFormats', {'BC'}, 'OutputDa
 T_final = 600;    % Final simulation time
 N = T_final / Ts;  % Number of discrete time steps
 stage = 4;
-r=[20*ones(1,N/4), 30*ones(1,N/4), 27*ones(1,N/4),35*ones(1,N/4) ];
+r=[15*ones(1,N/stage), 30*ones(1,N/stage), 20*ones(1,N/stage), 40*ones(1,N/stage) ];
 
 % Arrays to store simulation results
 x_store = zeros(2, N);        % Store actual state
@@ -87,17 +87,17 @@ for k = 1:N
     % u = -K * xt +G*desired_t;
 
     % MPC
-    horizon = 50;
-    uN = mpc_fun(A_d,B_d,Q,R,xt,xr,horizon);
-    u = uN(1);
+    % horizon = 30;
+    % uN = mpc_fun(A_d,B_d,Q,R,xt,xr,horizon);
+    % u = uN(1);
 
     % YALMIP
     % [u,p_init,theta_init] = heater_original_optimation(xt,xr,A_d, B_d,R,Q,K,G);
     
     % NN MODEL
-    % data_input = [xt(1),xt(2),xr(2)];
-    % output = predict(net, data_input);
-    % u = output(4);
+    data_input = [xt(1),xt(2),xr(2)];
+    output = predict(net, data_input);
+    u = output(1)*100;
 
 
     if u > 100
@@ -121,6 +121,7 @@ for k = 1:N
     time_rest = Ts - elapsedTime;
     if time_rest > 0
         pause(time_rest-0.028);
+        % pause(time_rest);
     end
 
     x_2 = arduino_lab1(u)-ambient_t;  % read actural temperature.
@@ -140,49 +141,51 @@ for k = 1:N
 end
 
 
-% %% Plot the results--SHOW UP IN PAPER
-% 
-% % TO DISPLAY PAPER FIGURE: LOAD SAVED .mat DATA. uncomment following:
-% % clear
-% % load("lqr.mat");
-% % load("result30_NN2.mat")
+%% Plot the results--SHOW UP IN PAPER
+
+% TO DISPLAY PAPER FIGURE: LOAD SAVED .mat DATA. uncomment following:
+% clear
+% load("lqr.mat");
+% load("result30_NN2.mat")
 % x_store_lqr = load('mpc_heater_varyXr_X.mat');
 % u_store_lqr = load('mpc_heater_varyXr_U.mat');
-% 
-% time = (0:N-1) * Ts;
-% 
-% figure;
-% subplot(3, 1, 1);
-% plot(time, x_store(1, :), 'r', 'LineWidth', 2);
-% hold on
-% plot(time, x_store_lqr(1, 1:200), 'b', 'LineWidth', 2);
-% xlabel('Time [s]');
-% ylabel('State x_1');
-% legend('Multi-Agent', 'LQR');
-% grid("on");
-% title('State x_1');
-% 
-% subplot(3, 1, 2);
-% plot(time, x_store(2, :)+ambient_t, 'r', 'LineWidth', 2);
-% hold on;
-% % plot(time, x_hat_store(2, :), 'r--', 'LineWidth', 2);
-% % plot reference
-% plot(time, x_store_lqr(2, :)+20, 'b', 'LineWidth', 2);
-% plot(time,r+ambient_t,'c--', 'LineWidth', 3);
-% xlabel('Time [s]');
-% ylabel('State x_2');
-% legend('Multi-Agent', 'LQR','Reference');
-% grid("on");
-% title('State x_2');
-% 
-% subplot(3, 1, 3);
-% plot(time, u_store_lqr, 'm', 'LineWidth', 2);
-% hold on
-% plot(time, u_store, 'k', 'LineWidth', 2);
-% 
-% legend('LQR','Multi-Agent');
-% grid("on");
-% xlabel('Time [s]');
-% ylabel('Control input u');
-% title('Control input u');
-% exportgraphics(gcf, 'heater_res.png', 'Resolution', 300);
+data_mpc = load('heater_mpc_T5.mat');
+
+
+time = (0:N-1) * Ts;
+
+figure;
+subplot(3, 1, 1);
+plot(time, x_store(1, :), 'r', 'LineWidth', 2);
+hold on
+plot(time, data_mpc.x_store(1, 1:N), 'b', 'LineWidth', 2);
+xlabel('Time [s]');
+ylabel('State x_1');
+legend('NN Ours', 'MPC');
+grid("on");
+title('State x_1');
+
+subplot(3, 1, 2);
+plot(time, x_store(2, :)+ambient_t, 'r', 'LineWidth', 2);
+hold on;
+% plot(time, x_hat_store(2, :), 'r--', 'LineWidth', 2);
+% plot reference
+plot(time, data_mpc.x_store(2, :)+ambient_t, 'b', 'LineWidth', 2);
+plot(time,r+ambient_t,'c--', 'LineWidth', 3);
+xlabel('Time [s]');
+ylabel('State x_2');
+legend('NN Ours', 'MPC','Reference');
+grid("on");
+title('State x_2');
+
+subplot(3, 1, 3);
+plot(time, data_mpc.u_store, 'm', 'LineWidth', 2);
+hold on
+plot(time, u_store, 'k', 'LineWidth', 2);
+
+legend('NN Ours', 'MPC');
+grid("on");
+xlabel('Time [s]');
+ylabel('Control input u');
+title('Control input u');
+exportgraphics(gcf, 'heater_res.png', 'Resolution', 300);

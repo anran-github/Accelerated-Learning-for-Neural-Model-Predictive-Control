@@ -47,7 +47,7 @@ C = np.array([0, 1])
 D = 0
 
 # Define the sample time (Ts)
-Ts = 0.5  # Adjust the sample time as needed
+Ts = 5  # Adjust the sample time as needed
 # Discretize the system
 Ad, Bd, Cd, _, _ = cont2discrete((A, B, C, D), Ts, method='zoh')
 Cd = Cd.reshape(1,2)
@@ -64,23 +64,12 @@ L = (L_res.gain_matrix).T
 
 
 
-x_r = torch.tensor([0.,reference]).reshape(2,1).to(device)
-theta=torch.tensor(args.theta).to(device)
 
 
-
-
-
-model = P_Net(output_size=4).to(device)
-print(model)
+model = P_Net(output_size=30).to(device)
+# print(model)
 # weights = glob('weights/*.pth')
-weights = ['weights/new_model_epoch1200_15166.048_u140842.816.pth',
-
-'weights/new_model_epoch1250_15011.042_u138445.576.pth',
-
-'weights/new_model_epoch1300_14958.173_u137241.343.pth',
-
-'weights/new_model_epoch1350_14912.034_u136431.022.pth',
+weights = ['Heater_Results/uniform_S30_vshape_Iter20_Epoch10.pth',
 
 ]
 weights.sort()
@@ -95,7 +84,6 @@ for weight in weights:
 
     # give a random point, plot how it goes after n iterations
     num_points = 1
-    iteration = 500
     u_set = []
     x1_set = []
     x2_set = []
@@ -106,6 +94,13 @@ for weight in weights:
     # Bd=np.array([0,0.1]).reshape(2,1)
     # Ad=lambda xt: [[1, 0.1],[-0.1*9.8*np.cos(xt), 1]]
 
+    T_final = 600
+    N       = T_final / Ts
+    iteration = int(N)
+    stage   = N//4
+
+    r = [x for x in [15, 30 ,20, 40] for _ in range(int(stage))]
+    
 
 
     for t in range(iteration):
@@ -114,12 +109,16 @@ for weight in weights:
             xt = np.array([0,0]).reshape(2,1)
         # p_tt = np.eye(2)
 
-        x_input = [xt[0,0],xt[1,0],reference]
+        x_input = [xt[0,0],xt[1,0],r[t]]
         with torch.no_grad():
             x_tem = torch.tensor(x_input).reshape(1,3)
             x_tem = x_tem.type(torch.float32)
             # output order: p1, p2, p3, u
             output = model(x_tem.to(device))
+
+            # unnormalize
+            output = output * 100
+            
             if not device.type == 'cuda':
                 output = output.numpy()
             else:
@@ -131,7 +130,7 @@ for weight in weights:
 
             # p_t = np.array([[output[0,0],output[0,1]],[output[0,1],output[0,2]]])
             # print(output)
-            u_t = np.array(output[:,3]).reshape(1,1)
+            u_t = np.array(output[:,0]).reshape(1,1)
             # print(u_t)
             # saturate input u
             u_value = u_t[0]
@@ -203,7 +202,7 @@ for weight in weights:
 
     plt.subplot(312)
     plt.plot(t,x2_set,label='temperature')
-    plt.plot(t,np.ones(len(range(iteration)))*reference,'--r',label='reference')
+    plt.plot(t,r,'--r',label='reference')
     plt.grid(linestyle = '--')
     # plt.legend()
     # plt.legend('temperature','reference')

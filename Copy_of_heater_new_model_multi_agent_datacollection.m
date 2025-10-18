@@ -14,8 +14,7 @@ D = 0;
 sys_d=ss(A,B,C,D);
 
 % Discretize the transfer function with Ts = 3 seconds
-Ts = 5;
-horizon = 30;
+Ts = 0.5;
 sys_ss_d = c2d(sys_d, Ts);
 % Get the state-space matrices of the discrete system
 [A_d, B_d, C_d, D_d] = ssdata(sys_ss_d);
@@ -31,7 +30,7 @@ L = place(A_d', C_d', observer_poles)';
 % =================MULTI-AGENT PARAM SETTINGS===================
 
 % Define LQR parameters
-Q = [0.1 0;0 100];  % State cost (penalize deviation of states)
+Q = [0.1 0;0 10];  % State cost (penalize deviation of states)
 R = 0.001;       % Control effort cost (penalize large control inputs)
 
 % filename for saving dataset
@@ -46,7 +45,7 @@ G = inv(C_d * inv(eye(2) - A_d + B_d * K) * B_d);
 
 
 % saving file setting
-file_name = 'mpc_data_heater.csv';
+file_name = 'data_heater.csv';
 
 %% DATA COLLECTION SECTION:
 
@@ -64,21 +63,24 @@ for r=5:70 % reference
     xr=[0;r];
     
     % continue iterations until error reached.
-    cache_matrix = zeros(1,horizon+3);
-    while error > 0.005 && k <= 200
+    cache_matrix = zeros(2,4);
+    while error > 0.001
     
         if k == 1
             xt = [x_observer;0];
-            % generate points start from random init temperature
-            if rand() < 0.4
-                tmp_t = rand()*30 + 5;
-                xt = [tmp_t*0.1;tmp_t]; % between 5-35
-            end
         end
         % Select different control law for the discrete-time system: 
-        uN = mpc_fun(A_d,B_d,Q,R,xt,xr,horizon);
-        u = uN(1);
+        [u,P,theta] = multi_agent_algorithm(xt,xr,A_d,B_d,R,Q,K,G)
+        % [u,P,theta] = heater_original_optimation(xt,xr,A_d, B_d,R,Q,K,G);
 
+        % ((A_d*xt+B_d*u-xr)'*p_init*(A_d*xt+B_d*u-xr))^(0.5)-((xt-xr)'*p_init*(xt-xr))^(0.5)<=-0.0001*((xt-xr)'*(xt-xr))^(0.5)
+
+        % will not consider saturate for data collection. test only
+        % if u>=100
+        %     u=100;
+        % elseif u<=0
+        %     u=0;
+        % end
     
         % update observer
         y = C_d * xt;  
@@ -92,17 +94,20 @@ for r=5:70 % reference
         
         % Store results
         % ========== Data Format ===========
-        %  x1   x2(Th)  r  u1   u2, ... , uN
+        %  x1      p1   p2   u
+        %  x2(Th)  p2   p3   reference
         % ==================================
 
         % SAVE RESULT
-        cache_matrix(1,1:2) = xt;
-        cache_matrix(1,3) = r;
-        cache_matrix(1,4:horizon+3) = uN;
+        cache_matrix(:,1) = xt;
+        % eig(p)
+        cache_matrix(:,2:3) = P;
+        cache_matrix(1,4) = u;
+        cache_matrix(2,4) = r;
         if k==1
             result_matrix = cache_matrix;
         else
-            result_matrix = cat(1,result_matrix, cache_matrix);
+            result_matrix = cat(1,cache_matrix,result_matrix);
         end
         
         % update temperature with SS model.

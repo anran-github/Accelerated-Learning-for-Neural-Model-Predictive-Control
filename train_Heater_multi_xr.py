@@ -15,12 +15,9 @@ import time
 
 # import NN structure:
 from network import P_Net
-
 from Objective_Formulations_mpc import ObjectiveFormulation
-from test_converge_PI import  test_trajectory_MPC, currentdataset_vs_optdataset
-from dataprocessing import DroneZ_Data_Purify, dataloading_MPC
-from UpdatingDataset import UpdatingDataset, TruthAwareSampler
-from loss_function import RunningAverage
+from Heater_Dataset import Data_Heater_Collected, UpdatingDataset, TruthAwareSampler
+
 
 
 # CHECK GPU/CPU
@@ -28,38 +25,38 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 print(f"Using device: {device}")
 
-running_avg1 = RunningAverage()
-running_avg2 = RunningAverage()
-running_avg2.avg = torch.tensor([350]).to(device)
 
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--opt_dataset',type=str,default='semi_supervison/dataset/drone_mpc_z_multi_ref.csv', help='corresponding theta dataset')
+parser.add_argument('--opt_dataset',type=str,default='mpc_data_heater.csv', help='corresponding theta dataset')
 parser.add_argument('--lr',type=float, default=1e-4, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=4096, help='input batch size for training')
-parser.add_argument('--sampling_num_per_xr', type=int, default=10,help='number of samples per reference trajectory for updating dataset')
+parser.add_argument('--sampling_num_per_xr', type=int, default=50,help='number of samples per reference trajectory for updating dataset')
 parser.add_argument('--sampling_mode', type=str, default='uniform',help='uniform, dense_center, dense_boundary')
-parser.add_argument('--omega_mode',type=str, default='erf', help='omega changing mode:constant, linear, erf, vshape')
-parser.add_argument('--total_iterations', type=int, default=10,help='total iterations for updating dataset and training')
-parser.add_argument('--num_epochs', type=int, default=5,help='number of epochs for each iteration')
+parser.add_argument('--omega_mode',type=str, default='vshape', help='omega changing mode:constant, linear, erf, vshape')
+parser.add_argument('--total_iterations', type=int, default=40,help='total iterations for updating dataset and training')
+parser.add_argument('--num_epochs', type=int, default=10,help='number of epochs for each iteration')
 parser.add_argument('--pre_trained', type=str, default='',help='input your pretrained weight path if you want')
 args = parser.parse_args()
 print(args)
 
 
 # specify save path
-save_path = f'semi_supervison/DroneZ_MPC_weights'
+save_path = f'Heater_Results'
 os.makedirs(save_path, exist_ok=True)
 
 # ====== Load Modle and Optimal Dataset========
-model = P_Net(output_size=50).to(device)
-data_tmp = DroneZ_Data_Purify(args.opt_dataset,u_max=1e5)
-opt_dataset = data_tmp.return_data()
+model = P_Net(output_size=30).to(device)
+
+# data_tmp = Data_Heater_Collected(args.opt_dataset)
+# opt_dataset = data_tmp.return_data()
 
 
 # ============== Load Updating Dataset ==============
-dataset = UpdatingDataset(mode=args.sampling_mode, sampling_num_per_xr=args.sampling_num_per_xr)
+dataset = UpdatingDataset(mode=args.sampling_mode, 
+                          sampling_num_per_xr=args.sampling_num_per_xr,
+                          opt_dataset_path=args.opt_dataset)
 
 data_opt_set, label_opt_set = dataset[dataset.TruthData_Mask]
 
@@ -73,11 +70,11 @@ if args.pre_trained != '':
     PI_x, PI_u, u_violation = dataset.test_performance_index(model, device=device, model_path=None)
     
     # validate current dataset vs optimal dataset
-    diff_opt = currentdataset_vs_optdataset(model,device,opt_dataset)
-    print(f'Current dataset vs Optimal dataset MSE: {diff_opt}')
-    print(f'Pre-trained model PI_x: {PI_x}, PI_u: {PI_u}')
-    print('---------------------End-------------------------')
-    exit()
+    # diff_opt = currentdataset_vs_optdataset(model,device,opt_dataset)
+    # print(f'Current dataset vs Optimal dataset MSE: {diff_opt}')
+    # print(f'Pre-trained model PI_x: {PI_x}, PI_u: {PI_u}')
+    # print('---------------------End-------------------------')
+    # exit()
 
 
 
@@ -210,7 +207,10 @@ for i in range(total_iterations):
             outputs = model(inputs.to(device))
 
 
-            loss1 = criterion(outputs, targets.to(device))
+            loss1_1  = 10 * criterion(outputs[:,0], targets[:,0].to(device)) 
+            
+            loss1_2 = criterion(outputs[:,1:], targets[:,1:].to(device))
+            loss1 = loss1_1 + loss1_2
 
             loss2 = criterion2.forward(inputs.to(device), outputs.to(device))
             loss2 = loss2.mean()  # Ensure loss2 is a scalar
@@ -245,13 +245,16 @@ for i in range(total_iterations):
     # test PI after each iteration
     PI_x, PI_u, u_violation = dataset.test_performance_index(model, device=device, model_path=None)
     
+
+
+
     # validate current dataset vs optimal dataset
-    diff_opt = currentdataset_vs_optdataset(model,device,opt_dataset)
-    print(f'Current dataset vs Optimal dataset MSE: {diff_opt}')
-    diff_optdata_nnout.append(diff_opt)
+    # diff_opt = currentdataset_vs_optdataset(model,device,opt_dataset)
+    # print(f'Current dataset vs Optimal dataset MSE: {diff_opt}')
+    # diff_optdata_nnout.append(diff_opt)
 
     
-    if PI_x < 17 and u_violation < 2000:
+    if PI_x < PI_x_bext:
         PI_x_bext = PI_x
         PI_u_bext = PI_u
         u_violation_best = u_violation
@@ -317,16 +320,16 @@ plt.savefig(os.path.join(save_path, 'diff_current_optimal_dataset.png'), dpi=300
 
 
 
-'''
+# '''
 
 
-# test_PI, num_in = test_performance_index(model, device=device, xr=0.0, model_path=os.path.join('semi_supervison/DroneZ_MPC_weights','weight_best.pth'))
+# # test_PI, num_in = test_performance_index(model, device=device, xr=0.0, model_path=os.path.join('semi_supervison/DroneZ_MPC_weights','weight_best.pth'))
 
 
-# model.load_state_dict(torch.load('semi_supervison/DroneZ_MPC_weights/weight_0.9_0.1.pth', map_location=device))
-# PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path='semi_supervison/DroneZ_MPC_weights/weight_0.9_0.1.pth')
-# print(f'Performance Index: {PI} | Valid Trajectories Count: {valid_cnt}')
+# # model.load_state_dict(torch.load('semi_supervison/DroneZ_MPC_weights/weight_0.9_0.1.pth', map_location=device))
+# # PI, valid_cnt = test_performance_index(model, device=device, xr=0.0, model_path='semi_supervison/DroneZ_MPC_weights/weight_0.9_0.1.pth')
+# # print(f'Performance Index: {PI} | Valid Trajectories Count: {valid_cnt}')
 
-x_trajectory, trajectories_in_val, trajectories_label_val = dataloading_MPC('DroneZ_MPC/dataset/droneZ_MPC_16trajectory.csv')
-test_trajectory_MPC(model, (x_trajectory, trajectories_label_val), device)
-'''
+# x_trajectory, trajectories_in_val, trajectories_label_val = dataloading_MPC('DroneZ_MPC/dataset/droneZ_MPC_16trajectory.csv')
+# test_trajectory_MPC(model, (x_trajectory, trajectories_label_val), device)
+# '''

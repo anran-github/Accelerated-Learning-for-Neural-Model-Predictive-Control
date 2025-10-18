@@ -22,7 +22,7 @@ D = 0;
 sys_d=ss(A,B,C,D);
 
 % Discretize the transfer function with Ts = 3 seconds
-Ts = 2;
+Ts = 5;
 sys_ss_d = c2d(sys_d, Ts);
 
 % Get the state-space matrices of the discrete system
@@ -97,7 +97,7 @@ for k = 1:N
     % u = -K * xt +G*desired_t;
 
     % MPC
-    horizon = 50;
+    horizon = 30;
     uN = mpc_fun(A_d,B_d,Q,R,xt,xr,horizon);
     u = uN(1);
 
