@@ -28,7 +28,7 @@ class ObjectiveFormulation():
         C = np.array([[1,0]])
         D = 0
         
-        self.dt = 0.1 # sampling time
+        self.dt = 0.2 # sampling time
         ss = control.ss(A, B, C, D)
         Gd = control.c2d(ss,self.dt, method='zoh') # 'zoh':assuming control input be constant between sampling intervals.
         
@@ -39,9 +39,9 @@ class ObjectiveFormulation():
 
 
         # MPC parameters
-        self.N = 50;              # Prediction horizon
-        self.Q = torch.tensor([[20.,0],[0.,10.]]).to(device)
-        self.R = torch.tensor([0.1]).to(device)
+        self.N = 10;              # Prediction horizon
+        self.Q = torch.tensor([[2.,0],[0.,1.]]).to(device)
+        self.R = torch.tensor([1]).to(device)
 
         self.u_min = -0.6
         self.u_max = 0.6
@@ -110,7 +110,7 @@ class ObjectiveFormulation():
         Bdd = torch.tile(self.Bd, (data.shape[0], 1, 1))
         x_terminal = xt_plus
         for i in range(20):
-            u =  - K@x_terminal
+            u =  - K@(x_terminal-self.xr_input)
             # add constraint
             constraints_total += self.constrain1(torch.cat((x_terminal.reshape(data.shape[0],2), u.reshape(data.shape[0],1)), dim=1))
             x_terminal = Add@x_terminal + Bdd@u 

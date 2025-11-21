@@ -1,83 +1,80 @@
-function [uHist] = mpc_fun(Ad, Bd, Q, R, x0, xref,N)
+function u_seq = mpc_fun(Ad, Bd, Q, R, x0, xref, N)
+% Simplified finite-horizon MPC (1-step receding horizon)
+% Inputs:
+%   Ad, Bd - discrete system matrices
+%   Q, R   - state/input cost matrices
+%   x0     - current state
+%   xref   - desired state
+%   N      - prediction horizon
+% Output:
+%   u_seq  - optimal input sequence [u(1)...u(N)]
+
+    % clear yalmip
     
-   
-    % Ad = [1.0000 0.0916;
-    %       0      0.8363];
-    % Bd = [-0.0082;
-    %       -0.1592];
-    % Cd = [1 0];
-    % Dd = 0;
-    
-    
-    
-    % Simulation length
-    Tsim = 1;
-    
-    
-    % Variables to store result
-    xHist = zeros(2, Tsim+1);
-    uHist = zeros(1, Tsim);
-    
-    xHist(:,1) = x0;
-    
-    % Input constraints (optional)
-    u_max = 0.6;
+
+    % Define decision variables
+    nx = size(Ad,1);
+    nu = size(Bd,2);
+
+    % x = sdpvar(nx, N+1);
+    u = sdpvar(nu, N);
+
+    % Constraints and objective initialization
+    constraints = [];
+    cost = 0;
+
+    % Input constraints
     u_min = -0.6;
-    
-    for k = 1:Tsim
-        % Decision variables
-    
-        u = sdpvar(1, N);
-        
-        % Objective and constraints
-        cost =(xHist(:,k)-xref)'*Q*(xHist(:,k)-xref) + u(:,1)'*R*u(:,1);
-        constraints = [u_min <= u(:,1), u(:,1)<= u_max];
-       
-        
-        
-        for i = 1:N
-            if i==1
-                x(:,i) = Ad*xHist(:,k) + Bd*u(:,i);
-            else
-                x(:,i) = Ad*x(:,i-1) + Bd*u(:,i);
-            end
-            cost = cost + (x(:,i)-xref)'*Q*(x(:,i)-xref) + u(:,i)'*R*u(:,i);
-            constraints = [constraints,u_min <= u(:,i), u(:,i) <= u_max];
-        end
-    
-    
-        % % add terminal conditions:
-        [K, P, ~] = dlqr(Ad, Bd, Q, R);
+    u_max = 0.6;
+
+    % % Initial condition
+    % x(:,1) = x0;
     
 
-        % Add terminal cost
-        cost = cost + (x(:,N)-xref)' * P * (x(:,N)-xref);
-    
-        % Terminal feasibility using 20-step LQR rollout
-        x_terminal = x(:,N);
-        for t = 1:20
-            u_lqr = -K * x_terminal;
-            constraints = [constraints, u_min <= u_lqr, u_lqr <= u_max];
-            x_terminal = Ad * x_terminal + Bd * u_lqr;
+    % Build cost and constraints
+    for k = 0:N-1
+        if k==0
+             cost = cost + (x0-xref)'*Q*(x0-xref) + u(:,k+1)'*R*u(:,k+1);
+             x(:,k+1) = Ad*x0  + Bd*u(:,k+1);
+             constraints = [constraints; u_min <= u(:,k+1); u(:,k+1) <= u_max];
+        else
+           cost = cost + (x(:,k)-xref)'*Q*(x(:,k)-xref) + u(:,k+1)'*R*u(:,k+1);
+           x(:,k+1) = Ad*x(:,k)  + Bd*u(:,k+1);
+           constraints = [constraints; u_min <= u(:,k+1); u(:,k+1) <= u_max];
         end
-    
-            
-        % Set options and solve
-        % options = sdpsettings('solver','quadprog','verbose',0);
-        options = sdpsettings('solver','fmincon');
-        diagnostics = optimize(constraints, cost, options);
-        
-        if diagnostics.problem ~= 0
-            error('The optimization problem was not solved!');
-        end
-        
-        % Apply control and simulate system
-        uHist = value(u);
-        % xHist(:,k+1) = Ad * xHist(:,k) + Bd * uHist(k);
     end
-    
+
+    % Add terminal cost
+    [Kcl, P, ~] = dlqr(Ad, Bd, Q, R);
+    cost = cost + (x(:,N)-xref)' * P * (x(:,N)-xref);
+
+   % Terminal feasibility using 20-step LQR rollout
+      x_terminal = x(:,N);
+       for t = 1:20
+           if t==1
+            u_lqr = -Kcl *(x(:,N)-xref) ;
+            constraints = [constraints; u_min <= u_lqr; u_lqr <= u_max];
+            x_terminal = Ad * x_terminal + Bd * u_lqr;
+           else
+            u_lqr = -Kcl *(x_terminal-xref) ;
+            constraints = [constraints; u_min <= u_lqr; u_lqr <= u_max];
+            x_terminal = Ad * x_terminal + Bd * u_lqr;
+           end
+        end
 
 
+    % Solve optimization
+    options = sdpsettings('solver','quadprog','verbose',0);
+    % options = sdpsettings('solver','fmincon','verbose',0);
+
+
+    diagnostics = optimize(constraints, cost, options);
+
+    if diagnostics.problem ~= 0
+        warning('MPC optimization did not fully converge.');
+    end
+
+    % Extract first control action sequence
+    u_seq = value(u);
 
 end
-

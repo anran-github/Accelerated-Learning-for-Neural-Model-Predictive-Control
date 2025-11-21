@@ -61,7 +61,7 @@ G = inv(C_d * inv(eye(2) - A_d + B_d * K) * B_d);
 
 % ================== NN SETTINGS =========================
 % Load ONNX model
-net = importONNXNetwork("heater_NN2.onnx", 'InputDataFormats', {'BC'}, 'OutputDataFormats', {'BC'});
+net = importONNXNetwork("Heater_Results/uniform_S50_constant_Iter40_Epoch10.onnx", 'InputDataFormats', {'BC'}, 'OutputDataFormats', {'BC'});
 
 % ==================NN setting end =========================
 
@@ -107,7 +107,7 @@ for k = 1:N
     % NN MODEL
     % data_input = [xt(1),xt(2),xr(2)];
     % output = predict(net, data_input);
-    % u = output(4);
+    % u = output(1)*100;
 
 
     if u > 100

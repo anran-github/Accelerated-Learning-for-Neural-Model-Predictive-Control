@@ -1,1 +1,0 @@
-This section hasn't been applied, use multi-agent method to collect trajectory data.

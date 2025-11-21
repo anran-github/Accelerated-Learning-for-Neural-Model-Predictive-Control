@@ -31,6 +31,14 @@ Gd = control.c2d(ss,dt, method='zoh') # 'zoh':assuming control input be constant
 
 Ad, Bd, Cd, Dd = Gd.A, Gd.B, Gd.C, Gd.D
 
+
+# build observer gains:
+observer_poles = np.array([0.85, 0.9])
+L_res = place_poles(Ad.T,Cd.T,observer_poles)
+L = (L_res.gain_matrix).T
+
+
+
 # MPC settings
 N = 30;              # Prediction horizon
 Q = torch.tensor([[0.1,0],[0.,100.]])
@@ -157,10 +165,21 @@ class UpdatingDataset(Dataset):
         # add space for u_seq
         self.data = np.hstack((self.data, np.zeros((self.data.shape[0], N))))
 
-
+        # new method to fill optimal data:
+        opt_data_idx = np.random.uniform(0,self.data.shape[0],sampling_num_per_xr*101).astype(int)
+        opt_data = self.data[opt_data_idx,:3]
+        
+        # # save to csv
+        # pd.DataFrame(opt_data).to_csv('heater_sampling_points.csv',header=None,index=False)
+        
         # load optimal dataset
-        opt_dataset = Data_Heater_Collected(opt_dataset_path)
-        opt_input, opt_label = opt_dataset.sample_data(sampling_num_per_xr, self.mode)
+        opt_dataset = pd.read_csv(opt_dataset_path, header=None).values
+        # get rid of Nan vals:
+        opt_dataset = opt_dataset[~np.isnan(opt_dataset).any(axis=1)]
+        opt_input, opt_label = opt_dataset[:,:3], opt_dataset[:,3:]
+        # normalize the label data to [0,1]
+        opt_label = (opt_label - u_min) / (u_max - u_min)
+        print(f"Loaded optimal dataset from {opt_dataset_path}, total {opt_input.shape[0]} samples.")
 
 
         t_start = time.time()
@@ -179,7 +198,7 @@ class UpdatingDataset(Dataset):
             # insert to dataset
             distance = np.linalg.norm(self.data[:,:3] - np.hstack((x0, xr)), axis=1)
 
-            if distance.min() > 0.05:
+            if distance.min() > 0.01:
                 continue
 
             nearest_idx = np.argmin(distance)
@@ -267,12 +286,6 @@ class UpdatingDataset(Dataset):
         x_upper_bound = 100
         x_lower_bound = -10
 
-        # build observer gains:
-        observer_poles = np.array([0.85, 0.9])
-        L_res = place_poles(Ad.T,Cd.T,observer_poles)
-        L = (L_res.gain_matrix).T
-
-
 
 
 
@@ -346,9 +359,9 @@ class UpdatingDataset(Dataset):
         if valid_trajectories > 0:
             xset = xset[:,select_mask,:]  # Filter xset with the mask
 
-            xr_tile = torch.tile(torch.stack((torch.zeros_like(x_r), x_r)).T,(xset.shape[0],1,1)).cpu()
-            Performance_index = torch.norm(xset - xr_tile[:,select_mask, :], dim=2)
-            Performance_index = Performance_index.sum(0).mean()
+            xr_tile = torch.tile(x_r,(xset.shape[0],1)).cpu()
+            Performance_index = torch.norm(xset[:,:,1] - xr_tile[:,select_mask],dim=1)
+            Performance_index = Performance_index.mean()
             # calculate PI for u:
             uset = uset[:,select_mask,:]
             Performance_index_u = torch.norm(uset, dim=2).sum(0).mean()
@@ -488,6 +501,117 @@ class UpdatingDataset(Dataset):
                 json.dump({'xset': xset.tolist(),
                         'uset': uset.tolist(),
                         'xr': xrset.tolist()}, f)
+
+
+
+    def test_tracking_simulation(self, model, device, model_path = None):
+        '''
+        Test the tracking performance of the model given a reference trajectory xr.
+        Similar to test_performance_index but plot the tracking results over time.
+        '''
+            
+        # Set the model to evaluation mode (if needed)
+        model.eval()
+
+
+        # give a random point, plot how it goes after n iterations
+        num_points = 1
+        u_set = []
+        x1_set = []
+        x2_set = []
+        delta_x_set = []
+        v_dot_set = []
+        arrow_trajectory = []
+
+        # Bd=np.array([0,0.1]).reshape(2,1)
+        # Ad=lambda xt: [[1, 0.1],[-0.1*9.8*np.cos(xt), 1]]
+
+        T_final = 600
+        N       = T_final / dt
+        iteration = int(N)
+        stage   = N//4
+
+        r = [x for x in [15, 30 ,20, 40] for _ in range(int(stage))]
+        
+
+
+        for t in range(iteration):
+
+            if t == 0:
+                xt = np.array([0,0]).reshape(2,1)
+            # p_tt = np.eye(2)
+
+            x_input = [xt[0,0],xt[1,0],r[t]]
+            with torch.no_grad():
+                x_tem = torch.tensor(x_input).reshape(1,3)
+                x_tem = x_tem.type(torch.float32)
+                # output order: p1, p2, p3, u
+                output = model(x_tem.to(device))
+
+                # unnormalize
+                output = output * 100
+                
+                if not device.type == 'cuda':
+                    output = output.numpy()
+                else:
+                    output = output.detach().cpu().numpy()
+
+                # k, _, _ = dlqr(A, B, Q, R)
+                # Ad= np.array([np.array([1, 0.1]),[-0.1*9.8*np.cos(xt.numpy()), 1]])
+                # Ad= np.stack([xt[:,0]+0.1*xt[:,1],-0.1*9.8*np.sin(xt[:,0]) + 1*xt[:,1]]).transpose(1,0,2)
+
+                # p_t = np.array([[output[0,0],output[0,1]],[output[0,1],output[0,2]]])
+                # print(output)
+                u_t = np.array(output[:,0]).reshape(1,1)
+                # print(u_t)
+                # saturate input u
+                u_value = u_t[0]
+                if u_value > 100:
+                    u_t = u_t*0+100
+                elif u_value < 0:
+                    u_t = u_t*0
+
+                #  observer update
+                y = Cd @ xt;  
+                x_observer = Ad @ xt + Bd @ u_t + L @ (y - Cd @ xt)  
+                        
+                
+
+                # uncomment this line if you want to compare to dlqr.
+                # u_t = -torch.from_numpy(k).type(torch.float32) @ xt
+                xtt =  Ad @ xt + Bd @ u_t
+
+                # update x(t+1)
+                xtt[0,0] = x_observer[0,0]
+
+                x1_set.append(xt[0,0])
+                x2_set.append(xt[1,0])
+                u_set.append(u_t[0,0])
+                # our previous V
+
+                # v_dot = np.sqrt(np.linalg.norm(xtt.T @ p_t @ xtt ,axis=1)) - np.sqrt(np.linalg.norm(xt.T @ p_tt @ xt,axis=1))
+                # v_dot_set.append(v_dot)
+                # u_set.append(u_t.item())
+                ##======REMEMBER TO CHEKCK THETA HERE (0.01)======
+                # arrow_trajectory.append((-0.01*np.linalg.norm(xt)))
+                delta_x_set.append((xtt-xt))
+                xt = xtt
+                # p_tt = p_t
+
+
+        # transfer to degrees
+        delta_x_set = np.array(delta_x_set)
+        u_set = np.array(u_set)
+        x1_set = np.array(x1_set)
+        x2_set = np.array(x2_set)
+
+        # summery performance index
+        Performance_index = np.sum(np.linalg.norm(delta_x_set[:,1]-r, axis=1))
+        Performance_U_index = np.sum(np.linalg.norm(u_set))
+        violation = np.sum(np.abs(u_set) > u_max)
+        print(f'Performance Index ||x-xr||: {Performance_index:.3f} | Performance Index ||u||: {Performance_U_index:.3f} | Violation: {violation}')
+
+        return Performance_index, Performance_U_index, violation
 
 
 

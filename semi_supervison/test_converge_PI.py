@@ -14,7 +14,7 @@ import control
 import os
 
 
-dt = 0.1
+dt = 0.2
 
 # % read A,B,C,D matrices:
 A = np.array([[0, 1], [0, -1.7873]])
@@ -383,7 +383,8 @@ def currentdataset_vs_optdataset(model,device, opt_dataset):
 
     opt_label = torch.tensor(np.array(label_data_valid),dtype=torch.float32, device=device)
     # loss = F.mse_loss(nn_output,opt_label,reduction='none')
-    loss = torch.abs(nn_output-opt_label)
+    horizon = nn_output.shape[1]
+    loss = torch.abs(nn_output-opt_label[:,:horizon])  # only consider first 50 outputs
 
     # l_mean, l_std = torch.std_mean(loss,dim=0, keepdim=True)
     # loss_selected = loss[loss[:,3]<(l_mean[:,3]+0.5*l_std[:,3])]

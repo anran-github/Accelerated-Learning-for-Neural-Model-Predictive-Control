@@ -45,7 +45,7 @@ os.makedirs(save_path, exist_ok=True)
 dataset = MPCDataset()
 testdataset = UpdatingDataset(mode='uniform', 
                               sampling_num_per_xr=10,
-                              opt_dataset_path='mpc_data_heater.csv')
+                              opt_dataset_path='mpc_data_heater_10.csv')
 
 T_start =  time.time()
 # ================== NN Training ==============
@@ -98,7 +98,7 @@ for i in nn0_training_bar:
     if PI_x < PI_x_bext:
         PI_x_bext = PI_x
         PI_u_bext = PI_u
-        torch.save(model.state_dict(), os.path.join(save_path, f'Benchmark-MPC.pth'))
+        torch.save(model.state_dict(), os.path.join(save_path, f'Benchmark-MPC_verify.pth'))
         print(f'New best model saved with PI_x: {PI_x_bext:.3f}, PI_u: {PI_u:.3f}, violation: {u_violation} at epoch {i}')
     
     train_loss_set.append(np.mean(loss_tmp))

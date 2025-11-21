@@ -26,13 +26,22 @@ C = np.array([[1, 0]])
 D = np.array([[0]])
 
 # Discretize system
-dt = 0.1
+# dt = 0.1
+# Ad, Bd, Cd, Dd, _ = cont2discrete((A, B, C, D), dt)
+
+# # MPC settings
+# N = 50
+# Q = np.diag([20, 10])
+# R = np.array([[0.1]])
+
+dt = 0.2
 Ad, Bd, Cd, Dd, _ = cont2discrete((A, B, C, D), dt)
 
 # MPC settings
-N = 50
-Q = np.diag([20, 10])
-R = np.array([[0.1]])
+N = 10
+Q = np.diag([2, 1])
+R = np.array([[1]])
+
 
 # Generate dataset
 # Generate total dataset first
@@ -369,10 +378,11 @@ class UpdatingDataset(Dataset):
                     x_r[iterations*i:iterations*(i+1),0] = x_r_check[i]
 
                                 
-                Performance_index = torch.norm(xset - x_r)
+                Performance_index = torch.norm(xset - x_r,dim=1)
+                Performance_index = Performance_index.sum() / pts_count
                 # calculate PI for u:
                 uset = torch.tensor(uset, dtype=torch.float32)
-                Performance_index_u = torch.norm(uset)
+                Performance_index_u = torch.norm(uset,dim=1).sum() / pts_count
                 # calculate u violation
                 u_violation = torch.sum(torch.abs(uset) > u_max).item()
                 print(f'Performance Index ||x-xr||: {Performance_index:.3f} | Performance Index ||u||: {Performance_index_u:.3f} | Violation: {u_violation}')
@@ -380,7 +390,8 @@ class UpdatingDataset(Dataset):
                 return 0
             
 
-
+        # MPC Output Simulation -- Data Collection Only
+        '''
         for j in tqdm(range(x0.shape[0])):
             x = (x0[j]).numpy().reshape(-1,1)
             xr = (x_r[j]).item()
@@ -419,7 +430,7 @@ class UpdatingDataset(Dataset):
                 json.dump({'xset': xset.tolist(),
                         'uset': uset.tolist(),
                         'xr': xrset.tolist()}, f)
-
+        '''
 
 
 

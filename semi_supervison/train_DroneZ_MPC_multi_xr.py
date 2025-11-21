@@ -17,10 +17,9 @@ import time
 from network import P_Net
 
 from Objective_Formulations_mpc import ObjectiveFormulation
-from test_converge_PI import  test_trajectory_MPC, currentdataset_vs_optdataset
-from dataprocessing import DroneZ_Data_Purify, dataloading_MPC
+from test_converge_PI import   currentdataset_vs_optdataset
+from dataprocessing import DroneZ_Data_Purify
 from UpdatingDataset import UpdatingDataset, TruthAwareSampler
-from loss_function import RunningAverage
 
 
 # CHECK GPU/CPU
@@ -28,21 +27,18 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 print(f"Using device: {device}")
 
-running_avg1 = RunningAverage()
-running_avg2 = RunningAverage()
-running_avg2.avg = torch.tensor([350]).to(device)
 
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--opt_dataset',type=str,default='semi_supervison/dataset/drone_mpc_z_multi_ref.csv', help='corresponding theta dataset')
-parser.add_argument('--lr',type=float, default=1e-4, help='learning rate')
+parser.add_argument('--lr',type=float, default=2e-4, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=4096, help='input batch size for training')
-parser.add_argument('--sampling_num_per_xr', type=int, default=10,help='number of samples per reference trajectory for updating dataset')
-parser.add_argument('--sampling_mode', type=str, default='uniform',help='uniform, dense_center, dense_boundary')
-parser.add_argument('--omega_mode',type=str, default='erf', help='omega changing mode:constant, linear, erf, vshape')
-parser.add_argument('--total_iterations', type=int, default=10,help='total iterations for updating dataset and training')
-parser.add_argument('--num_epochs', type=int, default=5,help='number of epochs for each iteration')
+parser.add_argument('--sampling_num_per_xr', type=int, default=40,help='number of samples per reference trajectory for updating dataset')
+parser.add_argument('--sampling_mode', type=str, default='dense_center',help='uniform, dense_center, dense_boundary')
+parser.add_argument('--omega_mode',type=str, default='vshape', help='omega changing mode:constant, linear, erf, vshape')
+parser.add_argument('--total_iterations', type=int, default=5,help='total iterations for updating dataset and training')
+parser.add_argument('--num_epochs', type=int, default=2,help='number of epochs for each iteration')
 parser.add_argument('--pre_trained', type=str, default='',help='input your pretrained weight path if you want')
 args = parser.parse_args()
 print(args)
@@ -53,7 +49,7 @@ save_path = f'semi_supervison/DroneZ_MPC_weights'
 os.makedirs(save_path, exist_ok=True)
 
 # ====== Load Modle and Optimal Dataset========
-model = P_Net(output_size=50).to(device)
+model = P_Net(output_size=10).to(device)
 data_tmp = DroneZ_Data_Purify(args.opt_dataset,u_max=1e5)
 opt_dataset = data_tmp.return_data()
 
@@ -128,35 +124,43 @@ total_iterations = args.total_iterations
 # define w1, w2 change values:
 if args.omega_mode == 'linear':
     # Method 1: linear change
-    w1 = np.linspace(1.0, 0., total_iterations)
+    w2 = np.linspace(0.9, 0.1, total_iterations)
 elif args.omega_mode == 'erf':
     # Method 2: erf change
-    w1 = (-0.5*torch.erf(torch.linspace(-2.5,2.5,total_iterations))+0.5).tolist()
+    w2 = (-0.4*torch.erf(torch.linspace(-2.5,2.5,total_iterations))+0.5).tolist()
 elif args.omega_mode == 'vshape':
     # Method 3: vshape change
     half_iter = total_iterations // 2
-    w1_half = np.linspace(1.0, 0., half_iter)
+    w1_half = np.linspace(0.9, 0.1, half_iter)
     if total_iterations % 2 == 0:
-        w1 = np.concatenate((w1_half, w1_half[::-1]))
+        w2 = np.concatenate((w1_half, w1_half[::-1]))
     else:
-        w1 = np.concatenate((w1_half, [0.5], w1_half[::-1]))
+        w2 = np.concatenate((w1_half, [0.5], w1_half[::-1]))
 elif args.omega_mode == 'constant':
     # Method 4: constant change
-    w1 = 1.0 * np.ones(total_iterations)
+    w2 = 1.0 * np.ones(total_iterations)
 # # w2.extend(10*[w2[-1]])
 # # [w2.insert(0,w2[0]) for _ in range(10)]
-w1 = np.array(w1)
+w2 = np.array(w2)
 
-w2 = 1 - w1
+w1 = 1 - w2
 
-# # plot w1 change
+# plot w1 change
 # plt.subplot(211)
-# plt.plot(np.arange(w1.shape[0]),w1, label='w1',marker='o',linewidth=2)
-# plt.xlabel('Iteration')
-# plt.ylabel(r'$\omega_1$ value')
-# plt.title(r'$\omega$ value change over iterations')
-# plt.grid(linestyle='--')
-# # plot w2 change
+plt.figure(figsize=(8, 3))
+plt.plot(np.arange(1, total_iterations+1, step=1),w1,marker='o',linewidth=2)
+plt.xlabel('Iteration',fontsize=17)
+plt.ylabel(r'$\omega^k$ value',fontsize=17)
+# plt.title(r'$\omega^k$ value change over iterations',fontsize=14)
+plt.grid(linestyle='--')
+# range x-axis be intergers only
+plt.xticks(np.arange(1, total_iterations+1, step=2),fontsize=17)
+# specify x and y axis number font size
+plt.yticks(0.1*np.arange(1,10,step=2),fontsize=17)
+plt.tight_layout()
+plt.savefig(os.path.join(save_path, f'omega_change_{args.omega_mode}.png'), dpi=300)
+plt.show()
+# plot w2 change
 # plt.subplot(212)
 # plt.plot(np.arange(w2.shape[0]),w2, label='w2',color='orange', marker='*',linewidth=2)
 # plt.xlabel('Iteration')
@@ -185,8 +189,10 @@ PI_x_bext = np.inf
 u_violation_best = np.inf
 PI_u_bext = np.inf
 diff_optdata_nnout = []
+T_train = 0.0
 for i in range(total_iterations):
 
+    t_train = time.time()
     sampler = TruthAwareSampler(dataset, batch_size=args.batch_size, truth_indices=dataset.TruthData_Mask)
     dataloader = DataLoader(dataset, batch_sampler=sampler)
     
@@ -241,7 +247,7 @@ for i in range(total_iterations):
 
     # update lr for new iterations
     # lr_iteration = scheduler.get_last_lr()[0]
-
+    T_train += (time.time() - t_train)
     # test PI after each iteration
     PI_x, PI_u, u_violation = dataset.test_performance_index(model, device=device, model_path=None)
     
@@ -251,7 +257,7 @@ for i in range(total_iterations):
     diff_optdata_nnout.append(diff_opt)
 
     
-    if PI_x < 17 and u_violation < 2000:
+    if PI_x < PI_x_bext:
         PI_x_bext = PI_x
         PI_u_bext = PI_u
         u_violation_best = u_violation
@@ -262,8 +268,7 @@ for i in range(total_iterations):
     # update the data_update_set and label_update_set
     dataset.update_with_model(model, device=device)
 
-T_end = time.time() - T_start
-print(f'--------------Total Cost: {T_end}s----------------')
+print(f'--------------Total Training Time: {T_train:.3f}s----------------')
 print(f'The best PI_x: {PI_x_bext:.3f}, PI_u: {PI_u_bext:.3f}, U violation: {u_violation_best:.3f}')
 print('---------------Training Finished-------------------')
 
@@ -284,7 +289,7 @@ plt.title('Training Loss1 (MSE)')
 plt.legend()
 plt.subplot(212)
 plt.plot(x, loss2_set, label='Loss2 (MPC)', color='blue',marker='*',linewidth=2)
-plt.ylim(150, np.mean(loss2_set)+3*np.std(loss2_set))
+plt.ylim(0, np.mean(loss2_set)+3*np.std(loss2_set))
 plt.grid(linestyle='--')
 plt.xlabel('Iteration')
 plt.ylabel('Loss2')
@@ -303,7 +308,10 @@ plt.title('Difference between Current Dataset and Optimal Dataset')
 plt.grid(linestyle='--')
 plt.savefig(os.path.join(save_path, 'diff_current_optimal_dataset.png'), dpi=300)
 
-
+# save training logs and difference logs
+saved_data = {'Loss1': loss1_set,'Loss2': loss2_set,'Difference': diff_optdata_nnout, 'Learning_Rate': lr_set}
+with open(os.path.join(save_path, f'training_logs_{args.sampling_mode}_S{args.sampling_num_per_xr}_{args.omega_mode}_Iter{args.total_iterations}_Epoch{args.num_epochs}.npz'), 'wb') as f:
+    np.save(f, saved_data)
 
 
 

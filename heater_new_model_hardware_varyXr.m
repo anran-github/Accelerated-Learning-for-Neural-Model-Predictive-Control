@@ -52,7 +52,7 @@ G = inv(C_d * inv(eye(2) - A_d + B_d * K) * B_d);
 
 % ================== NN SETTINGS =========================
 % Load ONNX model
-net = importONNXNetwork("Heater_Results/uniform_S10_erf_Iter20_Epoch10.onnx", 'InputDataFormats', {'BC'}, 'OutputDataFormats', {'BC'});
+net = importONNXNetwork("Heater_Results/uniform_S50_constant_Iter40_Epoch10.onnx", 'InputDataFormats', {'BC'}, 'OutputDataFormats', {'BC'});
 
 % ==================NN setting end =========================
 
@@ -154,38 +154,61 @@ data_mpc = load('heater_mpc_T5.mat');
 
 time = (0:N-1) * Ts;
 
-figure;
-subplot(3, 1, 1);
-plot(time, x_store(1, :), 'r', 'LineWidth', 2);
-hold on
-plot(time, data_mpc.x_store(1, 1:N), 'b', 'LineWidth', 2);
-xlabel('Time [s]');
-ylabel('State x_1');
-legend('NN Ours', 'MPC');
-grid("on");
-title('State x_1');
+% figure;
+% subplot(2, 1, 1);
+% plot(time, x_store(1, :), 'r', 'LineWidth', 2);
+% hold on
+% plot(time, data_mpc.x_store(1, 1:N), 'b', 'LineWidth', 2);
+% xlabel('Time [s]');
+% ylabel('State x_1');
+% legend('NMPC', 'MPC','Location','southeast');
+% grid("on");
+% title('State x_1');
+% 
 
-subplot(3, 1, 2);
+% define figure size 800x300
+figure('Position', [100, 100, 900, 600]);
+subplot(2, 1, 1);
 plot(time, x_store(2, :)+ambient_t, 'r', 'LineWidth', 2);
 hold on;
 % plot(time, x_hat_store(2, :), 'r--', 'LineWidth', 2);
 % plot reference
 plot(time, data_mpc.x_store(2, :)+ambient_t, 'b', 'LineWidth', 2);
-plot(time,r+ambient_t,'c--', 'LineWidth', 3);
+plot(time,r+ambient_t,'--','Color', [0.6 0.6 0.6], 'LineWidth', 3);
+% make x-axis and y-axis font size bigger
+set(gca, 'FontSize', 16);
 xlabel('Time [s]');
-ylabel('State x_2');
-legend('NN Ours', 'MPC','Reference');
+ylabel('Temperature [°C]');
+legend('Neural MPC', 'MPC','Reference','Location','southeast');
 grid("on");
-title('State x_2');
+% title('Temperature [°C]');
 
-subplot(3, 1, 3);
-plot(time, data_mpc.u_store, 'm', 'LineWidth', 2);
-hold on
+subplot(2, 1, 2);
 plot(time, u_store, 'k', 'LineWidth', 2);
-
-legend('NN Ours', 'MPC');
+hold on
+plot(time, data_mpc.u_store, 'm', 'LineWidth', 2);
+% plot upper and lower bounds
+yline(100, 'r--', 'LineWidth', 1.5);
+yline(0, 'r--', 'LineWidth', 1.5);
+% set y-axis range
+ylim([-10 110]);
+set(gca, 'FontSize', 16);
+% label with u_max and u_min
+% legend('Neural MPC','MPC', 'u_{max}', 'u_{min}','Location','southeast');
+legend('Neural MPC','MPC', 'Constraint','Location','southeast');
 grid("on");
 xlabel('Time [s]');
-ylabel('Control input u');
-title('Control input u');
+ylabel('Control input');
+% title('Control input u');
 exportgraphics(gcf, 'heater_res.png', 'Resolution', 300);
+
+
+% compute tracking error and control effort
+tracking_error_mpc = norm(data_mpc.x_store(2,:) - r, 2);
+tracking_error_nmpc = norm(x_store(2,:) - r, 2);
+control_effort_mpc = norm(data_mpc.u_store, 2);
+control_effort_nmpc = norm(u_store, 2);
+disp(['Tracking Error NMPC: ', num2str(tracking_error_nmpc)]);
+disp(['Tracking Error MPC: ', num2str(tracking_error_mpc)]);
+disp(['Control Effort NMPC: ', num2str(control_effort_nmpc)]);
+disp(['Control Effort MPC: ', num2str(control_effort_mpc)]);

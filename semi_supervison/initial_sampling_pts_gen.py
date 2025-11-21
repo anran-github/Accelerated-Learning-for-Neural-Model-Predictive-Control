@@ -14,6 +14,91 @@ def dlqr(A, B, Q, R):
 
 
 def mpc_fun(Ad, Bd, Q, R, x0, xref, N, u_min=-0.6, u_max=0.6):
+    """
+    Simplified finite-horizon MPC (1-step receding horizon)
+    Parameters
+    ----------
+    Ad, Bd : ndarray
+        Discrete-time system matrices
+    Q, R : ndarray
+        State and input cost matrices
+    x0 : ndarray
+        Current state
+    xref : ndarray
+        Desired reference state
+    N : int
+        Prediction horizon
+    u_min, u_max : float
+        Input saturation limits
+
+    Returns
+    -------
+    u_seq : ndarray
+        Optimal input sequence [u(0), ..., u(N-1)]
+    """
+    # Compute LQR for terminal cost and constraint rollout
+    Kcl, P = dlqr(Ad, Bd, Q, R)
+
+    nx = Ad.shape[0]
+    nu = Bd.shape[1]
+
+    # Flattened optimization variable: u = [u0, u1, ..., uN-1]
+    def cost_fn(u):
+        u = np.array(u).reshape(N, nu)
+        x = x0.reshape(nx, 1)
+        cost = 0.0
+        for k in range(N):
+            u_k = u[k].reshape(nu, 1)
+            x = Ad @ x + Bd @ u_k
+            cost += float((x - xref).T @ Q @ (x - xref) + u_k.T @ R @ u_k)
+        # Terminal cost
+        cost += float((x - xref).T @ P @ (x - xref))
+        return cost
+
+    # Terminal feasibility constraints (20-step LQR rollout)
+    def terminal_constraint(u):
+        """Ensure terminal feasibility via 20-step LQR rollout"""
+        u = np.array(u).reshape(N, nu)
+        x = x0.reshape(nx, 1)
+        for k in range(N):
+            u_k = u[k].reshape(nu, 1)
+            x = Ad @ x + Bd @ u_k
+
+        # Start from x_N and simulate 20-step LQR rollout
+        x_terminal = x.copy()
+        for t in range(20):
+            u_lqr = -Kcl @ (x_terminal - xref)
+            # if any constraint is violated → constraint returns positive value
+            if np.any(u_lqr < u_min) or np.any(u_lqr > u_max):
+                return 1.0  # violation
+            x_terminal = Ad @ x_terminal + Bd @ u_lqr
+        return 0.0  # feasible
+
+    # Bounds for each u_k
+    bounds = [(u_min, u_max)] * (N * nu)
+
+    # Nonlinear constraint wrapper
+    nonlinear_constraints = {
+        "type": "ineq",
+        "fun": lambda u: -terminal_constraint(u)  # must be ≥0 → feasible means ≥0
+    }
+
+    u0 = np.zeros((N * nu,))
+    res = minimize(
+        cost_fn,
+        u0,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=[nonlinear_constraints],
+        options={"disp": False, "maxiter": 200},
+    )
+
+    if not res.success:
+        print("Warning: MPC optimization did not fully converge:", res.message)
+
+    return res.x
+
+def mpc_fun_ori(Ad, Bd, Q, R, x0, xref, N, u_min=-0.6, u_max=0.6):
     """MPC optimization using scipy.optimize with box constraints"""
     # u_min, u_max = -0.6, 0.6
     K, P = dlqr(Ad, Bd, Q, R)
@@ -139,21 +224,23 @@ def sampling_data_generation(mode='uniform',sampling_num=16, xr=1.5):
 
 
     
-    # # === Plotting ===
-    # plt.figure(figsize=(6, 6))
-    # plt.scatter(initial_states[:, 0], initial_states[:, 1], c='b', label='Initial States')
-    # plt.xlim(x1_min - 0.5, x1_max + 0.5)
-    # plt.ylim(x2_min - 0.5, x2_max + 0.5)
-    # plt.scatter(xr, 0, c='r', marker='*', s=200, label='Reference Point')
-    # plt.xlabel('State x1')
-    # plt.ylabel('State x2')
-    # plt.title(f'Initial Sampling States ({mode})')
-    # plt.grid()
-    # plt.legend()
-    # plt.tight_layout()
-    # plt.savefig(f'semi_supervison/DroneZ_MPC_weights/initial_sampling_{mode}_xr{xr}.png', dpi=300)
-    # plt.show()
-    # plt.close()
+    # === Plotting ===
+    plt.figure(figsize=(6, 6))
+    plt.scatter(initial_states[:, 0], initial_states[:, 1], c='b', label='Initial States')
+    plt.xlim(x1_min - 0.25, x1_max + 0.25)
+    plt.ylim(x2_min - 0.25, x2_max + 0.5)
+    plt.scatter(xr, 0, c='r', marker='*', s=200, label='Reference State')
+    plt.xlabel(r'State $x_1$',fontsize=17)
+    plt.ylabel(r'State $x_2$',fontsize=17)
+    plt.xticks(fontsize=17)
+    plt.yticks(fontsize=17)
+    # plt.title(f'Initial Sampling States ({mode})',fontsize=16)
+    plt.grid()
+    plt.legend(fontsize=15)
+    plt.tight_layout()
+    plt.savefig(f'semi_supervison/DroneZ_MPC_weights/initial_sampling_{mode}_xr{xr}.png', dpi=300)
+    plt.show()
+    plt.close()
 
 
     # stack xr to each state

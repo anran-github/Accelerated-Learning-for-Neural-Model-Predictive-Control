@@ -68,8 +68,11 @@ L = (L_res.gain_matrix).T
 
 model = P_Net(output_size=30).to(device)
 # print(model)
-# weights = glob('weights/*.pth')
-weights = ['Heater_Results/uniform_S30_vshape_Iter20_Epoch10.pth',
+# weights = glob('Heater_Results/uniform_*.pth')
+weights = [
+    # 'Heater_Results/uniform_S50_vshape_Iter30_Epoch10 copy 2.pth',
+    'Heater_Results/uniform_S10_constant_Iter20_Epoch10.pth',
+    # 'Heater_Results/uniform_S50_constant_Iter30_Epoch10.pth'
 
 ]
 weights.sort()
@@ -220,6 +223,16 @@ for weight in weights:
     plt.show()
     plt.close()
 
+# summery performance index
+Performance_index = np.sum(np.linalg.norm(delta_x_set[:,1]-r, axis=1))
+Performance_U_index = np.sum(np.linalg.norm(u_set))
+violation = np.sum(np.abs(u_set) > 100)
+print(f'Performance Index x: {Performance_index:.3f}')
+print(f'Performance Index u: {Performance_U_index:.3f}')
+print(f'Input violation t~imes: {violation}')
+
+
+    # # plot x1-x2 phase plot
 
 # this code comes from drones
 '''

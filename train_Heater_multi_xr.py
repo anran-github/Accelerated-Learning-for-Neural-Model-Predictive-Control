@@ -16,7 +16,7 @@ import time
 # import NN structure:
 from network import P_Net
 from Objective_Formulations_mpc import ObjectiveFormulation
-from Heater_Dataset import Data_Heater_Collected, UpdatingDataset, TruthAwareSampler
+from Heater_Dataset import UpdatingDataset, TruthAwareSampler
 
 
 
@@ -29,15 +29,15 @@ print(f"Using device: {device}")
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--opt_dataset',type=str,default='mpc_data_heater.csv', help='corresponding theta dataset')
-parser.add_argument('--lr',type=float, default=1e-4, help='learning rate')
+parser.add_argument('--opt_dataset',type=str,default='mpc_data_heater_10.csv', help='corresponding theta dataset')
+parser.add_argument('--lr',type=float, default=3e-4, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=4096, help='input batch size for training')
-parser.add_argument('--sampling_num_per_xr', type=int, default=50,help='number of samples per reference trajectory for updating dataset')
+parser.add_argument('--sampling_num_per_xr', type=int, default=10,help='number of samples per reference trajectory for updating dataset')
 parser.add_argument('--sampling_mode', type=str, default='uniform',help='uniform, dense_center, dense_boundary')
-parser.add_argument('--omega_mode',type=str, default='vshape', help='omega changing mode:constant, linear, erf, vshape')
-parser.add_argument('--total_iterations', type=int, default=40,help='total iterations for updating dataset and training')
+parser.add_argument('--omega_mode',type=str, default='constant', help='omega changing mode:constant, linear, erf, vshape')
+parser.add_argument('--total_iterations', type=int, default=20,help='total iterations for updating dataset and training')
 parser.add_argument('--num_epochs', type=int, default=10,help='number of epochs for each iteration')
-parser.add_argument('--pre_trained', type=str, default='',help='input your pretrained weight path if you want')
+parser.add_argument('--pre_trained', type=str, default='Heater_Results/uniform_S10_constant_Iter20_Epoch10.pth',help='input your pretrained weight path if you want')
 args = parser.parse_args()
 print(args)
 
@@ -67,7 +67,7 @@ if args.pre_trained != '':
     print(f'Pre-trained model {args.pre_trained} loaded!')
 
     # test PI after each iteration
-    PI_x, PI_u, u_violation = dataset.test_performance_index(model, device=device, model_path=None)
+    # PI_x, PI_u, u_violation = dataset.test_performance_index(model, device=device, model_path=None)
     
     # validate current dataset vs optimal dataset
     # diff_opt = currentdataset_vs_optdataset(model,device,opt_dataset)
@@ -125,26 +125,26 @@ total_iterations = args.total_iterations
 # define w1, w2 change values:
 if args.omega_mode == 'linear':
     # Method 1: linear change
-    w1 = np.linspace(1.0, 0., total_iterations)
+    w2 = np.linspace(1.0, 0., total_iterations)
 elif args.omega_mode == 'erf':
     # Method 2: erf change
-    w1 = (-0.5*torch.erf(torch.linspace(-2.5,2.5,total_iterations))+0.5).tolist()
+    w2 = (-0.5*torch.erf(torch.linspace(-2.5,2.5,total_iterations))+0.5).tolist()
 elif args.omega_mode == 'vshape':
     # Method 3: vshape change
     half_iter = total_iterations // 2
-    w1_half = np.linspace(1.0, 0., half_iter)
+    w2_half = np.linspace(1.0, 0., half_iter)
     if total_iterations % 2 == 0:
-        w1 = np.concatenate((w1_half, w1_half[::-1]))
+        w2 = np.concatenate((w2_half, w2_half[::-1]))
     else:
-        w1 = np.concatenate((w1_half, [0.5], w1_half[::-1]))
+        w2 = np.concatenate((w2_half, [0.5], w2_half[::-1]))
 elif args.omega_mode == 'constant':
     # Method 4: constant change
-    w1 = 1.0 * np.ones(total_iterations)
+    w2 = 1.0 * np.ones(total_iterations)
 # # w2.extend(10*[w2[-1]])
 # # [w2.insert(0,w2[0]) for _ in range(10)]
-w1 = np.array(w1)
+w2 = np.array(w2)
 
-w2 = 1 - w1
+w1 = 1 - w2
 
 # # plot w1 change
 # plt.subplot(211)
@@ -244,6 +244,7 @@ for i in range(total_iterations):
 
     # test PI after each iteration
     PI_x, PI_u, u_violation = dataset.test_performance_index(model, device=device, model_path=None)
+    # PI_x, PI_u, u_violation = dataset.test_tracking_simulation(model, device=device, model_path=None)
     
 
 

@@ -66,7 +66,8 @@ class ObjectiveFormulation():
 
         # update reference trajectory
         self.xr_input        = torch.zeros((nn_input.shape[0],2,1), dtype=torch.float32).to(nn_input.device)
-        self.xr_input[:,1,0] = nn_input[:,2]  # update x2, change it based on your model
+        self.xr_input[:,1,0] = nn_input[:,2]  # update x2, Temperature
+        self.xr_input[:,0,0] = nn_input[:,0]  # update x1, since we don't want it to change, just copy the current x1
 
         # ================================ MPC:==================================
         for i in range(self.N):
@@ -109,7 +110,7 @@ class ObjectiveFormulation():
         Bdd = torch.tile(self.Bd, (data.shape[0], 1, 1))
         x_terminal = xt_plus
         for i in range(20):
-            u =  - K@x_terminal
+            u =  - K@(x_terminal-self.xr_input)
             # add constraint
             constraints_total += self.constrain1(torch.cat((x_terminal.reshape(data.shape[0],2), u.reshape(data.shape[0],1)), dim=1))
             x_terminal = Add@x_terminal + Bdd@u 
