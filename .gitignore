@@ -9,5 +9,6 @@ semi_supervison/DroneZ_MPC_weights
 *.mp4
 Heater_Results/*.pth
 *.mat
-
+*.csv
 DroneZ_MPC/dataset/*
+DroneZ_MPC/Real_Drone_Experiments
