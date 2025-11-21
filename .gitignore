@@ -6,3 +6,5 @@ semi_supervison/dataset
 semi_supervison/weights
 __pycache__
 semi_supervison/DroneZ_MPC_weights
+*.mp4
+*.gif
