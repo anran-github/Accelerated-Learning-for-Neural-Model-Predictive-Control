@@ -1,6 +1,25 @@
-# Single Heater System
+# Accelerated Learning for Neural Model Predictive Control
 
-The single heater system discrete-time state-space representation is:
+<video width="640" height="480" autoplay>
+    <source src="combined_output.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+</video>
+
+This is the source code of paper:
+
+    @article{li2025TrainingNMPC,
+        title={Accelerated Learning for Neural Model Predictive Control},
+        author={Anran Li, John P. Swensen, and Mehdi Hosseinzadeh},
+        journal={International Journal of Robust and Nonlinear Control},
+        year={2025},
+        note={Currently under review}
+    }
+
+The code provides both simulation and real-time control source code. 
+
+If you find it is helpful, please cite our paper.
+
+The simulation 
 
 $$
 \begin{align}
