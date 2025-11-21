@@ -10,5 +10,7 @@ semi_supervison/DroneZ_MPC_weights
 Heater_Results/*.pth
 *.mat
 *.csv
+
 DroneZ_MPC/dataset/*
 DroneZ_MPC/Real_Drone_Experiments
+DroneZ_MPC/Real_Drone_Experiments/results
