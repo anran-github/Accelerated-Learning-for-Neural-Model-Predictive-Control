@@ -1,23 +1,22 @@
 # Accelerated Learning for Neural Model Predictive Control
 
-![Combined Output](combined_output.mp4)
+Drone hovering results from our trained neural Model Predictive Control(MPC):
+<p align="center">
+  <img src="combined_high_quality.gif" width="800" alt="demo">
+</p>
 
-<video controls autoplay loop>
-    <source src="combined_output.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-</video>
 
-This is the source code of paper:
+The neural MPC is trained following the novel hybrid training idea in our paper:
 
     @article{li2025TrainingNMPC,
         title={Accelerated Learning for Neural Model Predictive Control},
         author={Anran Li, John P. Swensen, and Mehdi Hosseinzadeh},
         journal={International Journal of Robust and Nonlinear Control},
         year={2025},
-        note={Currently under review}
+        note={Under review}
     }
 
-The code provides both simulation and real-time control source code. 
+The repo is a source code provides two state-space representation models: 
 
 If you find it is helpful, please cite our paper.
 
