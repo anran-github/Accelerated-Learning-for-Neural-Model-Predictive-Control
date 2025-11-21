@@ -1,6 +1,8 @@
 # Accelerated Learning for Neural Model Predictive Control
 
-<video width="640" height="480" autoplay>
+![Combined Output](combined_output.mp4)
+
+<video controls autoplay loop>
     <source src="combined_output.mp4" type="video/mp4">
     Your browser does not support the video tag.
 </video>
