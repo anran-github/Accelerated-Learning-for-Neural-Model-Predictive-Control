@@ -6,7 +6,7 @@ Drone hovering results from our trained neural Model Predictive Control(MPC):
 </p>
 
 
-The neural MPC is trained following the novel hybrid training idea in our paper:
+The neural MPC is trained following the novel accelerated training idea in our paper:
 
     @article{li2025TrainingNMPC,
         title={Accelerated Learning for Neural Model Predictive Control},
@@ -16,11 +16,71 @@ The neural MPC is trained following the novel hybrid training idea in our paper:
         note={Under review}
     }
 
-The repo is a source code provides two state-space representation models: 
+The repo opens all codes for supporting the above paper, including:
+
+1. State-Space Models:
+    - Parrot Bebop 2 Drone
+    - TCLab Thermal Kit
+2. Simulations of the above models
+3. Proposed accelerated data collection and training/testing solutions 
 
 If you find it is helpful, please cite our paper.
 
-The simulation 
+## 1. Parrot Bebop 2 Drone Hovering Model (State-Space)
+
+$$
+\begin{align}
+x(t+1) &=
+\begin{bmatrix}
+    0 & 1 \\
+    0 & -1.7873
+\end{bmatrix} x(t)
++
+\begin{bmatrix}
+    0 \\
+    -1.7382
+\end{bmatrix} u(t)\nonumber,\\
+y(t) &= \begin{bmatrix}
+1 & 0
+\end{bmatrix} x(t) \nonumber
+\end{align}
+$$
+
+Above model is applied to Simulation and Real-Time control experiments.
+
+### Drone Model Simulation:
+See ``semi_supervison`` folder:
+- Neural MPC training: 
+``    semi_supervison/train_DroneZ_MPC_multi_xr.py``
+
+- MPC-inspired Loss: ``semi_supervison/Objective_Formulations_mpc.py``
+
+- Sampling Methods:
+``semi_supervison/initial_sampling_pts_gen.py``
+
+- Sythesis Data Updates:
+``semi_supervison/UpdatingDataset.py``
+
+Drone Simulation:
+
+- MATLAB:
+``DroneZ_MPC/Real_Drone_Experiments/drone_simulation_random_point.m``
+
+- Python:
+``semi_supervison/initial_sampling_pts_gen.py  (end of comment sections)``
+
+### Drone Model Real-Time Control:
+See folder ``DroneZ_MPC``:
+
+- Testing Dataset Collection:
+``DroneZ_MPC/droneZ_MPC_datacollection.m``
+
+- Connect and Control Bebop 2:
+``DroneZ_MPC/Real_Drone_Experiments/Continue_LQR_NN_Z_Controller.m``
+
+The neural MPC weights are trained follows the code from simulation section.
+
+## 2. TCLab Thermal Model
 
 $$
 \begin{align}
@@ -31,40 +91,36 @@ x(t+1) &= \begin{bmatrix}
 \begin{bmatrix}
 0.0004 \\
 -0.00
-\end{bmatrix} u(t), \\
+\end{bmatrix} u(t),\nonumber \\
 y(t) &= \begin{bmatrix}
 0 & 1
-\end{bmatrix} x(t) + T_{amb.},
+\end{bmatrix} x(t) + T_{amb.}\nonumber,
 \end{align}
 $$
 
 
 where $T_{amb.}$ is ambient temperature.
 
-If you want to compare your results with our heater system, this is a good demo.
-## 
-    heater_new_model_simulation
+Code is located on the main path.
 
-* Dynamic simulation with LQR control, Multi-Agent optimal control, and Neural Controller methods.
+### Simulation and Real-Time Control:
 
-## Hardware Experiemnt:
-## 
+- Neural MPC Training:
+``train_Heater_multi_xr.py``
 
-    heater_new_model_hardware.m
+- Synthesis Dataset:
+``Heater_Dataset.py``
 
-* The second section drow the paper figures:
-(Need to load both .mat files.)
-![Alt text](heater_res.png )
+Simulation code:
+- MATLAB:
+``heater_new_model_simulation_varyXr.m``
 
-* The first second connects Arduino kit board, build transition with the heater system.
+- Python:
+``NN_heater_trajectories_simulation.py``
+
+Change control input to your control algorithms accordingly.
+
+Real-Time Thermal System Control:
+``heater_new_model_hardware_varyXr.m``
 
 
-## Other Files
-    heater_new_model_multi_agent_datacollection.m
-
-* Used for data collection. 
-* A little different from the method metioned in paper. This reference code shows data is collected every iterations given one reference $T_{desire}$.
-##
-    NN_heater_trajectories_simulation.py
-
-* Verify the convergence for different trained NN models.

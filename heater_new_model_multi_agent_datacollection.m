@@ -1,7 +1,7 @@
 close all
 clear all
 
-% CODE REVISED FROM heater_new_model_hardware.m
+% Optimal data is collected by MPC Python, this script is not used in the end!!!
 
 % ===============SS MODEL and Observer settings===========================
 % give canonical form of matrices:
